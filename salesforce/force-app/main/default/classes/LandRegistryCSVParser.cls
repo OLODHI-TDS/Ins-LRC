@@ -202,6 +202,7 @@ public with sharing class LandRegistryCSVParser {
 
     /**
      * @description Parse header line to get column indices
+     * Uses FIRST matching column for each field (important when CSV has duplicate column sets)
      */
     private static Map<String, Integer> parseHeader(String headerLine) {
         Map<String, Integer> columnIndex = new Map<String, Integer>();
@@ -211,17 +212,18 @@ public with sharing class LandRegistryCSVParser {
             String header = headers[i].toLowerCase().trim();
 
             // Map various possible header names to our fields
-            if (header.contains('landlord') && header.contains('id')) {
+            // Only set if not already set (use FIRST matching column)
+            if (header.contains('landlord') && header.contains('id') && !columnIndex.containsKey('landlordId')) {
                 columnIndex.put('landlordId', i);
-            } else if (header == 'name' || header == 'landlord name' || header.contains('landlord') && header.contains('name')) {
+            } else if ((header == 'name' || header == 'landlord name' || (header.contains('landlord') && header.contains('name'))) && !columnIndex.containsKey('name')) {
                 columnIndex.put('name', i);
-            } else if (header.contains('first line') || header.contains('address1') || header.contains('address 1')) {
+            } else if ((header.contains('first line') || header.contains('address1') || header.contains('address 1')) && !columnIndex.containsKey('addressLine1')) {
                 columnIndex.put('addressLine1', i);
-            } else if (header.contains('town') || header.contains('city')) {
+            } else if ((header.contains('town') || header.contains('city')) && !columnIndex.containsKey('town')) {
                 columnIndex.put('town', i);
-            } else if (header.contains('county')) {
+            } else if (header.contains('county') && !columnIndex.containsKey('county')) {
                 columnIndex.put('county', i);
-            } else if (header.contains('postcode') || header.contains('post code') || header.contains('zip')) {
+            } else if ((header.contains('postcode') || header.contains('post code') || header.contains('zip')) && !columnIndex.containsKey('postcode')) {
                 columnIndex.put('postcode', i);
             }
         }
@@ -594,6 +596,159 @@ public with sharing class LandRegistryCSVParser {
         // Build summary
         Integer notMatched = csvData.size() - matchedIds.size();
         String summary = 'Update Complete!\n';
+        summary += '- CSV rows processed: ' + csvData.size() + '\n';
+        summary += '- Records updated: ' + toUpdate.size() + '\n';
+        summary += '- Records matched (no change needed): ' + (matchedIds.size() - toUpdate.size()) + '\n';
+        summary += '- Landlord IDs not found in Salesforce: ' + notMatched;
+
+        return summary;
+    }
+
+    /**
+     * @description Update existing records with address from CSV
+     * One-time script for retroactive updates
+     * @param csvContent The raw CSV content
+     * @return Summary of updates
+     */
+    public static String updateAddressFromCSV(String csvContent) {
+        if (String.isBlank(csvContent)) {
+            return 'Error: CSV content is empty';
+        }
+
+        // Parse CSV to extract Landlord ID and address fields
+        Map<String, Map<String, String>> csvData = new Map<String, Map<String, String>>();
+
+        List<String> lines = csvContent.replace('\r\n', '\n').replace('\r', '\n').split('\n');
+
+        if (lines.size() < 2) {
+            return 'Error: CSV must have header and at least one data row';
+        }
+
+        // Parse header to find column indices (uses FIRST matching columns)
+        String headerLine = lines[0];
+        List<String> headers = parseCSVLine(headerLine);
+
+        Integer landlordIdIdx = -1;
+        Integer addressLine1Idx = -1;
+        Integer townIdx = -1;
+        Integer countyIdx = -1;
+        Integer postcodeIdx = -1;
+
+        for (Integer i = 0; i < headers.size(); i++) {
+            String header = headers[i].toLowerCase().trim();
+
+            // Only use FIRST matching column for each field
+            if (header.contains('landlord') && header.contains('id') && landlordIdIdx == -1) {
+                landlordIdIdx = i;
+            } else if ((header.contains('first line') || header.contains('address1')) && addressLine1Idx == -1) {
+                addressLine1Idx = i;
+            } else if ((header.contains('town') || header.contains('city')) && townIdx == -1) {
+                townIdx = i;
+            } else if (header.contains('county') && countyIdx == -1) {
+                countyIdx = i;
+            } else if ((header.contains('postcode') || header.contains('post code')) && postcodeIdx == -1) {
+                postcodeIdx = i;
+            }
+        }
+
+        if (landlordIdIdx == -1) {
+            return 'Error: Could not find "Landlord ID" column';
+        }
+        if (addressLine1Idx == -1 && postcodeIdx == -1) {
+            return 'Error: Could not find address columns';
+        }
+
+        // Parse data rows
+        for (Integer i = 1; i < lines.size(); i++) {
+            String line = lines[i].trim();
+            if (String.isBlank(line)) {
+                continue;
+            }
+
+            List<String> values = parseCSVLine(line);
+
+            if (values.size() > landlordIdIdx) {
+                String landlordId = values[landlordIdIdx].trim();
+                if (String.isNotBlank(landlordId)) {
+                    Map<String, String> addressInfo = new Map<String, String>();
+
+                    if (addressLine1Idx != -1 && values.size() > addressLine1Idx) {
+                        addressInfo.put('addressLine1', values[addressLine1Idx].trim());
+                    }
+                    if (townIdx != -1 && values.size() > townIdx) {
+                        addressInfo.put('town', values[townIdx].trim());
+                    }
+                    if (countyIdx != -1 && values.size() > countyIdx) {
+                        addressInfo.put('county', values[countyIdx].trim());
+                    }
+                    if (postcodeIdx != -1 && values.size() > postcodeIdx) {
+                        addressInfo.put('postcode', values[postcodeIdx].trim());
+                    }
+
+                    csvData.put(landlordId, addressInfo);
+                }
+            }
+        }
+
+        if (csvData.isEmpty()) {
+            return 'Error: No valid data rows found in CSV';
+        }
+
+        // Query existing records
+        List<Land_Registry_Check__c> existingRecords = [
+            SELECT Id, Landlord_ID__c, Property_Address__c, Property_Postcode__c
+            FROM Land_Registry_Check__c
+            WHERE Landlord_ID__c IN :csvData.keySet()
+        ];
+
+        // Update records
+        List<Land_Registry_Check__c> toUpdate = new List<Land_Registry_Check__c>();
+        Set<String> matchedIds = new Set<String>();
+
+        for (Land_Registry_Check__c record : existingRecords) {
+            Map<String, String> addressInfo = csvData.get(record.Landlord_ID__c);
+            if (addressInfo != null) {
+                Boolean needsUpdate = false;
+
+                // Build full address
+                List<String> addressParts = new List<String>();
+                if (String.isNotBlank(addressInfo.get('addressLine1'))) {
+                    addressParts.add(addressInfo.get('addressLine1'));
+                }
+                if (String.isNotBlank(addressInfo.get('town'))) {
+                    addressParts.add(addressInfo.get('town'));
+                }
+                if (String.isNotBlank(addressInfo.get('county'))) {
+                    addressParts.add(addressInfo.get('county'));
+                }
+
+                String newAddress = String.join(addressParts, '\n');
+                String newPostcode = addressInfo.get('postcode');
+
+                if (String.isNotBlank(newAddress) && newAddress != record.Property_Address__c) {
+                    record.Property_Address__c = newAddress;
+                    needsUpdate = true;
+                }
+                if (String.isNotBlank(newPostcode) && newPostcode != record.Property_Postcode__c) {
+                    record.Property_Postcode__c = newPostcode;
+                    needsUpdate = true;
+                }
+
+                if (needsUpdate) {
+                    toUpdate.add(record);
+                }
+                matchedIds.add(record.Landlord_ID__c);
+            }
+        }
+
+        // Perform update
+        if (!toUpdate.isEmpty()) {
+            update toUpdate;
+        }
+
+        // Build summary
+        Integer notMatched = csvData.size() - matchedIds.size();
+        String summary = 'Address Update Complete!\n';
         summary += '- CSV rows processed: ' + csvData.size() + '\n';
         summary += '- Records updated: ' + toUpdate.size() + '\n';
         summary += '- Records matched (no change needed): ' + (matchedIds.size() - toUpdate.size()) + '\n';
