@@ -506,4 +506,131 @@ public with sharing class LandRegistryCSVParser {
             update toUpdate;
         }
     }
+
+    /**
+     * @description Update existing records with email and phone from CSV
+     * One-time script for retroactive updates
+     * @param csvContent The raw CSV content
+     * @return Summary of updates
+     */
+    public static String updateEmailPhoneFromCSV(String csvContent) {
+        if (String.isBlank(csvContent)) {
+            return 'Error: CSV content is empty';
+        }
+
+        // Parse CSV to extract Landlord ID, Phone, Email
+        Map<String, Map<String, String>> csvData = new Map<String, Map<String, String>>();
+
+        List<String> lines = csvContent.replace('\r\n', '\n').replace('\r', '\n').split('\n');
+
+        if (lines.size() < 2) {
+            return 'Error: CSV must have header and at least one data row';
+        }
+
+        // Parse header to find column indices
+        String headerLine = lines[0];
+        List<String> headers = parseCSVLine(headerLine);
+
+        Integer landlordIdIdx = -1;
+        Integer phoneIdx = -1;
+        Integer emailIdx = -1;
+
+        for (Integer i = 0; i < headers.size(); i++) {
+            String header = headers[i].toLowerCase().trim();
+            if (header == 'landlord id') {
+                landlordIdIdx = i;
+            } else if (header == 'phone' || header == 'telephone' || header == 'phone no') {
+                phoneIdx = i;
+            } else if (header == 'email' || header == 'e-mail' || header == 'email address') {
+                emailIdx = i;
+            }
+        }
+
+        if (landlordIdIdx == -1) {
+            return 'Error: Could not find "Landlord ID" column';
+        }
+        if (phoneIdx == -1 && emailIdx == -1) {
+            return 'Error: Could not find Phone or Email columns';
+        }
+
+        // Parse data rows
+        for (Integer i = 1; i < lines.size(); i++) {
+            String line = lines[i].trim();
+            if (String.isBlank(line)) {
+                continue;
+            }
+
+            List<String> values = parseCSVLine(line);
+
+            if (values.size() > landlordIdIdx) {
+                String landlordId = values[landlordIdIdx].trim();
+                if (String.isNotBlank(landlordId)) {
+                    Map<String, String> contactInfo = new Map<String, String>();
+
+                    if (phoneIdx != -1 && values.size() > phoneIdx) {
+                        contactInfo.put('phone', values[phoneIdx].trim());
+                    }
+                    if (emailIdx != -1 && values.size() > emailIdx) {
+                        contactInfo.put('email', values[emailIdx].trim());
+                    }
+
+                    csvData.put(landlordId, contactInfo);
+                }
+            }
+        }
+
+        if (csvData.isEmpty()) {
+            return 'Error: No valid data rows found in CSV';
+        }
+
+        // Query existing records
+        List<Land_Registry_Check__c> existingRecords = [
+            SELECT Id, Landlord_ID__c, Landlord_Email__c, Landlord_Phone__c
+            FROM Land_Registry_Check__c
+            WHERE Landlord_ID__c IN :csvData.keySet()
+        ];
+
+        // Update records
+        List<Land_Registry_Check__c> toUpdate = new List<Land_Registry_Check__c>();
+        Set<String> matchedIds = new Set<String>();
+
+        for (Land_Registry_Check__c record : existingRecords) {
+            Map<String, String> contactInfo = csvData.get(record.Landlord_ID__c);
+            if (contactInfo != null) {
+                Boolean needsUpdate = false;
+
+                String newPhone = contactInfo.get('phone');
+                String newEmail = contactInfo.get('email');
+
+                if (String.isNotBlank(newPhone) && newPhone != record.Landlord_Phone__c) {
+                    record.Landlord_Phone__c = newPhone;
+                    needsUpdate = true;
+                }
+                if (String.isNotBlank(newEmail) && newEmail != record.Landlord_Email__c) {
+                    record.Landlord_Email__c = newEmail;
+                    needsUpdate = true;
+                }
+
+                if (needsUpdate) {
+                    toUpdate.add(record);
+                }
+                matchedIds.add(record.Landlord_ID__c);
+            }
+        }
+
+        // Perform update
+        if (!toUpdate.isEmpty()) {
+            update toUpdate;
+        }
+
+        // Build summary
+        Integer notMatched = csvData.size() - matchedIds.size();
+        String summary = 'Update Complete!\n';
+        summary += '- CSV rows processed: ' + csvData.size() + '\n';
+        summary += '- Records updated: ' + toUpdate.size() + '\n';
+        summary += '- Records matched (no change needed): ' + (matchedIds.size() - toUpdate.size()) + '\n';
+        summary += '- Landlord IDs not found in Salesforce: ' + notMatched;
+
+        return summary;
+    }
 }
