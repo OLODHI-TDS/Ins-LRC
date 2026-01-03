@@ -476,38 +476,6 @@ public with sharing class LandRegistryCSVParser {
     }
 
     /**
-     * @description Reparse name for an existing record
-     * Used for retroactive fixes
-     */
-    @AuraEnabled
-    public static void reparseExistingRecords() {
-        List<Land_Registry_Check__c> checks = [
-            SELECT Id, Landlord_Name__c, Landlord_Type__c, Forename__c, Surname__c
-            FROM Land_Registry_Check__c
-            WHERE Landlord_Type__c = 'Individual'
-        ];
-
-        List<Land_Registry_Check__c> toUpdate = new List<Land_Registry_Check__c>();
-
-        for (Land_Registry_Check__c check : checks) {
-            Map<String, String> nameParts = parseIndividualName(check.Landlord_Name__c);
-            String newForename = nameParts.get('forename');
-            String newSurname = nameParts.get('surname');
-
-            // Only update if values changed
-            if (newForename != check.Forename__c || newSurname != check.Surname__c) {
-                check.Forename__c = newForename;
-                check.Surname__c = newSurname;
-                toUpdate.add(check);
-            }
-        }
-
-        if (!toUpdate.isEmpty()) {
-            update toUpdate;
-        }
-    }
-
-    /**
      * @description Update existing records with email and phone from CSV
      * One-time script for retroactive updates
      * @param csvContent The raw CSV content
