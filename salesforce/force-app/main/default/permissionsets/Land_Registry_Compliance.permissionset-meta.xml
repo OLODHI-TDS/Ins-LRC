@@ -164,4 +164,12 @@
         <tab>Land_Registry_Check__c</tab>
         <visibility>Visible</visibility>
     </tabSettings>
+    <tabSettings>
+        <tab>Land_Registry_Dashboard</tab>
+        <visibility>Visible</visibility>
+    </tabSettings>
+    <tabSettings>
+        <tab>Land_Registry_Upload</tab>
+        <visibility>Visible</visibility>
+    </tabSettings>
 </PermissionSet>

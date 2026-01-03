@@ -1,0 +1,22 @@
+.metric-card {
+    height: 100%;
+}
+
+.metric-value {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: #0176d3;
+    line-height: 1.2;
+}
+
+.metric-warning .metric-value {
+    color: #ff9a3c;
+}
+
+.metric-alert .metric-value {
+    color: #c23934;
+}
+
+.slds-modal__container {
+    max-width: 500px;
+}

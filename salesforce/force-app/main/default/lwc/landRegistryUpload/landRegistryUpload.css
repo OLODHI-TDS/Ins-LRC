@@ -1,0 +1,17 @@
+.stat-box {
+    background-color: #f3f3f3;
+    border-radius: 0.25rem;
+}
+
+.stat-individual {
+    border-left: 4px solid #0176d3;
+}
+
+.stat-company {
+    border-left: 4px solid #5a1ba9;
+}
+
+.slds-badge_inverse {
+    background-color: #5a1ba9;
+    color: white;
+}

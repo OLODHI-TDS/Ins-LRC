@@ -1,0 +1,116 @@
+<template>
+    <div class="slds-grid slds-gutters slds-wrap">
+        <!-- Metrics Cards Row -->
+        <div class="slds-col slds-size_1-of-1 slds-m-bottom_medium">
+            <div class="slds-grid slds-gutters">
+                <div class="slds-col slds-size_1-of-4">
+                    <lightning-card class="metric-card">
+                        <div class="slds-p-around_medium slds-text-align_center">
+                            <p class="slds-text-title_caps slds-text-color_weak">This Week</p>
+                            <p class="metric-value">{metrics.thisWeekChecks}</p>
+                            <p class="slds-text-body_small">Records Processed</p>
+                        </div>
+                    </lightning-card>
+                </div>
+                <div class="slds-col slds-size_1-of-4">
+                    <lightning-card class="metric-card metric-warning">
+                        <div class="slds-p-around_medium slds-text-align_center">
+                            <p class="slds-text-title_caps slds-text-color_weak">Pending Review</p>
+                            <p class="metric-value">{metrics.pendingReview}</p>
+                            <p class="slds-text-body_small">
+                                <a onclick={handleViewPendingReview}>View All</a>
+                            </p>
+                        </div>
+                    </lightning-card>
+                </div>
+                <div class="slds-col slds-size_1-of-4">
+                    <lightning-card class="metric-card metric-alert">
+                        <div class="slds-p-around_medium slds-text-align_center">
+                            <p class="slds-text-title_caps slds-text-color_weak">Needs Letter</p>
+                            <p class="metric-value">{metrics.needsLetter}</p>
+                            <p class="slds-text-body_small">
+                                <a onclick={handleViewNeedsLetter}>View All</a>
+                            </p>
+                        </div>
+                    </lightning-card>
+                </div>
+                <div class="slds-col slds-size_1-of-4">
+                    <lightning-card class="metric-card">
+                        <div class="slds-p-around_medium slds-text-align_center">
+                            <p class="slds-text-title_caps slds-text-color_weak">Total Checks</p>
+                            <p class="metric-value">{metrics.totalChecks}</p>
+                            <p class="slds-text-body_small">All Time</p>
+                        </div>
+                    </lightning-card>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Batches -->
+        <div class="slds-col slds-size_1-of-1">
+            <lightning-card title="Recent Batches" icon-name="utility:layers">
+                <div slot="actions">
+                    <lightning-button
+                        label="New Upload"
+                        variant="brand"
+                        onclick={handleNewUpload}>
+                    </lightning-button>
+                </div>
+
+                <template if:true={isLoading}>
+                    <div class="slds-p-around_large slds-text-align_center">
+                        <lightning-spinner alternative-text="Loading..."></lightning-spinner>
+                    </div>
+                </template>
+
+                <template if:false={isLoading}>
+                    <template if:true={hasBatches}>
+                        <lightning-datatable
+                            key-field="id"
+                            data={batches}
+                            columns={columns}
+                            hide-checkbox-column
+                            onrowaction={handleRowAction}>
+                        </lightning-datatable>
+                    </template>
+
+                    <template if:false={hasBatches}>
+                        <div class="slds-p-around_large slds-text-align_center slds-text-color_weak">
+                            <lightning-icon icon-name="utility:inbox" size="large" class="slds-m-bottom_small"></lightning-icon>
+                            <p>No batches uploaded yet.</p>
+                            <lightning-button
+                                label="Upload First Batch"
+                                variant="brand"
+                                onclick={handleNewUpload}
+                                class="slds-m-top_medium">
+                            </lightning-button>
+                        </div>
+                    </template>
+                </template>
+            </lightning-card>
+        </div>
+    </div>
+
+    <!-- Processing Modal -->
+    <template if:true={showProcessingModal}>
+        <section role="dialog" tabindex="-1" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" onclick={closeProcessingModal}>
+                        <lightning-icon icon-name="utility:close" size="small"></lightning-icon>
+                    </button>
+                    <h2 class="slds-modal__title">Start Processing</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p>Are you sure you want to start processing batch <strong>{selectedBatch.name}</strong>?</p>
+                    <p class="slds-m-top_small">This will submit {selectedBatch.totalRecords} records to HMLR for verification.</p>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Cancel" onclick={closeProcessingModal}></lightning-button>
+                    <lightning-button label="Start Processing" variant="brand" onclick={confirmStartProcessing}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+</template>
