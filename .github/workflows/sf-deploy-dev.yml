@@ -1,0 +1,60 @@
+# Salesforce Deployment Pipeline - Dev
+# Deploys to OmarDev sandbox on push to dev branch
+
+name: SF Deploy to Dev
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - 'salesforce/**'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    name: Deploy to OmarDev Sandbox
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Salesforce CLI
+        run: |
+          npm install -g @salesforce/cli
+          sf --version
+
+      - name: Authenticate to Salesforce
+        env:
+          SFDX_AUTH_URL: ${{ secrets.SFDX_AUTH_URL_DEV }}
+        run: |
+          echo "$SFDX_AUTH_URL" > auth_url.txt
+          sf org login sfdx-url --sfdx-url-file auth_url.txt --alias omardev --set-default
+          rm auth_url.txt
+
+      - name: Validate deployment (dry run)
+        run: |
+          sf project deploy start \
+            --source-dir salesforce/force-app \
+            --target-org omardev \
+            --dry-run \
+            --ignore-conflicts
+
+      - name: Deploy to Salesforce
+        run: |
+          sf project deploy start \
+            --source-dir salesforce/force-app \
+            --target-org omardev \
+            --ignore-conflicts
+
+      - name: Run Apex Tests (if any)
+        run: |
+          # Only run if there are test classes
+          TEST_CLASSES=$(find salesforce/force-app -name "*Test.cls" -o -name "*_Test.cls" | wc -l)
+          if [ "$TEST_CLASSES" -gt 0 ]; then
+            sf apex run test --target-org omardev --wait 10 --result-format human
+          else
+            echo "No test classes found, skipping tests"
+          fi
+        continue-on-error: true
