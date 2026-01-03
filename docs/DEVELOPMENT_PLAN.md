@@ -247,6 +247,106 @@ These can be developed in parallel:
 
 ---
 
+## Production Deployment Strategy
+
+### Salesforce Production Constraints
+
+**Issue:** Salesforce production has strict login IP restrictions. GitHub Actions runners use dynamic IPs that are not whitelisted.
+
+**Solution:** JWT Bearer Flow via dedicated Connected App
+
+The "Relax IP restrictions" setting is per-Connected App, not org-wide. Creating a dedicated CI/CD Connected App with relaxed IP restrictions does not affect the org's general security.
+
+### CI/CD Pipeline Summary
+
+| Environment | Workflow | Runner | Auth Method |
+|-------------|----------|--------|-------------|
+| OmarDev (Dev) | `sf-deploy-dev.yml` | `ubuntu-latest` | SFDX Auth URL |
+| Production | `sf-deploy-prod.yml` | `ubuntu-latest` | JWT Bearer Flow |
+
+### JWT Bearer Flow Setup (Production)
+
+#### Step 1: Generate Certificate Keypair
+
+```bash
+# Generate private key
+openssl genrsa -out server.key 2048
+
+# Generate self-signed certificate (valid 1 year)
+openssl req -new -x509 -key server.key -out server.crt -days 365 \
+  -subj "/C=GB/ST=Hertfordshire/L=Hemel Hempstead/O=The Dispute Service Ltd/CN=GitHub Actions CI"
+```
+
+**Files created:**
+- `server.key` - Private key (store as GitHub secret)
+- `server.crt` - Certificate (upload to Connected App)
+
+#### Step 2: Create Connected App in Salesforce Production
+
+1. **Setup → App Manager → New Connected App**
+2. **Basic Information:**
+   - Connected App Name: `GitHub Actions Deploy`
+   - API Name: `GitHub_Actions_Deploy`
+   - Contact Email: `omar.lodhi@tdsgroup.uk`
+
+3. **API (Enable OAuth Settings):**
+   - Enable OAuth Settings: ✅
+   - Callback URL: `https://login.salesforce.com/services/oauth2/callback`
+   - Use digital signatures: ✅ → Upload `server.crt`
+   - Selected OAuth Scopes:
+     - `api` (Access and manage your data)
+     - `refresh_token, offline_access`
+
+4. **Save and wait 2-10 minutes for propagation**
+
+#### Step 3: Configure Connected App Policies
+
+1. **Setup → App Manager → GitHub Actions Deploy → Manage**
+2. **OAuth Policies:**
+   - Permitted Users: `Admin approved users are pre-authorized`
+   - IP Relaxation: `Relax IP restrictions`
+3. **Save**
+
+#### Step 4: Assign Permission Set to Integration User
+
+1. Create a Permission Set: `GitHub Actions Integration`
+2. Under "Assigned Connected Apps", add `GitHub Actions Deploy`
+3. Assign the Permission Set to your deployment user
+
+#### Step 5: Add GitHub Secrets
+
+| Secret Name | Value |
+|-------------|-------|
+| `SF_PROD_CLIENT_ID` | Consumer Key from Connected App |
+| `SF_PROD_USERNAME` | Username of integration user (e.g., `deploy@tdsgroup.uk`) |
+| `SF_PROD_SERVER_KEY` | Contents of `server.key` file |
+| `SF_PROD_INSTANCE_URL` | `https://login.salesforce.com` |
+
+#### Step 6: Production Workflow Authentication
+
+```yaml
+- name: Authenticate to Salesforce (JWT)
+  run: |
+    echo "${{ secrets.SF_PROD_SERVER_KEY }}" > server.key
+    sf org login jwt \
+      --client-id ${{ secrets.SF_PROD_CLIENT_ID }} \
+      --jwt-key-file server.key \
+      --username ${{ secrets.SF_PROD_USERNAME }} \
+      --instance-url ${{ secrets.SF_PROD_INSTANCE_URL }} \
+      --alias prod \
+      --set-default
+    rm server.key
+```
+
+### Security Notes
+
+- The private key (`server.key`) is stored only in GitHub Secrets
+- IP restrictions remain enforced for all other logins
+- Only the CI/CD Connected App bypasses IP restrictions
+- Certificate can be rotated annually by generating new keypair
+
+---
+
 ## Risk Register
 
 | Risk | Likelihood | Impact | Mitigation |
@@ -257,6 +357,7 @@ These can be developed in parallel:
 | V+ data quality issues | Low | Medium | Robust validation in CSV parser |
 | Salesforce governor limits | Low | Medium | Batch processing, async patterns |
 | Azure Function timeouts | Low | Medium | Durable Functions handles this |
+| SF Prod IP restrictions | Confirmed | High | JWT Bearer Flow via dedicated Connected App |
 
 ---
 
