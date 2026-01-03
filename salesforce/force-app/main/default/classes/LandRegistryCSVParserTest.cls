@@ -128,6 +128,102 @@ private class LandRegistryCSVParserTest {
     }
 
     @isTest
+    static void testMultipleNamesParsing() {
+        // Separate full names with "and" - take first person only
+        Map<String, String> result1 = LandRegistryCSVParser.parseIndividualName('Neena Manjeet and Aalok Soni');
+        System.assertEquals('Neena', result1.get('forename'), 'Should take first person forename');
+        System.assertEquals('Manjeet', result1.get('surname'), 'Should take first person surname');
+
+        // Shared surname with "&"
+        Map<String, String> result2 = LandRegistryCSVParser.parseIndividualName('John & Mary Smith');
+        System.assertEquals('John', result2.get('forename'), 'Should take first forename');
+        System.assertEquals('Smith', result2.get('surname'), 'Should take shared surname from end');
+
+        // Shared surname with titles
+        Map<String, String> result3 = LandRegistryCSVParser.parseIndividualName('Mr James & Mrs Sarah Brown');
+        System.assertEquals('James', result3.get('forename'), 'Should take first forename after title removal');
+        System.assertEquals('Brown', result3.get('surname'), 'Should take shared surname from end');
+
+        // Shared surname with "and"
+        Map<String, String> result4 = LandRegistryCSVParser.parseIndividualName('Peter and Jane Wilson');
+        System.assertEquals('Peter', result4.get('forename'), 'Should take first forename');
+        System.assertEquals('Wilson', result4.get('surname'), 'Should take shared surname from end');
+
+        // Dr titles
+        Map<String, String> result5 = LandRegistryCSVParser.parseIndividualName('Dr John Smith & Dr Jane Smith');
+        System.assertEquals('John', result5.get('forename'), 'Should take first forename after title removal');
+        System.assertEquals('Smith', result5.get('surname'), 'Should take surname from first person');
+
+        // Complex case with duplicated names (like the original issue)
+        Map<String, String> result6 = LandRegistryCSVParser.parseIndividualName('Neena Manjeet and Aalok Soni Aalok Soni');
+        System.assertEquals('Neena', result6.get('forename'), 'Should take first person forename');
+        System.assertEquals('Manjeet', result6.get('surname'), 'Should take first person surname');
+
+        // Surname, Forename format with multiple people
+        Map<String, String> result7 = LandRegistryCSVParser.parseIndividualName('Smith, John and Mary');
+        System.assertEquals('John', result7.get('forename'), 'Should take first forename only');
+        System.assertEquals('Smith', result7.get('surname'), 'Should take surname correctly');
+    }
+
+    @isTest
+    static void testReparseExistingRecords() {
+        // Create a batch
+        Land_Registry_Batch__c batch = new Land_Registry_Batch__c(
+            Upload_Date__c = DateTime.now(),
+            Status__c = 'Pending',
+            Total_Records__c = 2
+        );
+        insert batch;
+
+        // Create records with incorrectly parsed names
+        List<Land_Registry_Check__c> checks = new List<Land_Registry_Check__c>{
+            new Land_Registry_Check__c(
+                Batch__c = batch.Id,
+                Landlord_ID__c = 'LL001',
+                Landlord_Name__c = 'Neena Manjeet and Aalok Soni',
+                Landlord_Type__c = 'Individual',
+                Forename__c = 'Neena',  // Wrong - was taking first word
+                Surname__c = 'Soni',     // Wrong - was taking last word
+                Property_Address__c = '123 Test Street',
+                Property_Postcode__c = 'TE1 1ST',
+                Status__c = 'Pending'
+            ),
+            new Land_Registry_Check__c(
+                Batch__c = batch.Id,
+                Landlord_ID__c = 'LL002',
+                Landlord_Name__c = 'John & Mary Smith',
+                Landlord_Type__c = 'Individual',
+                Forename__c = 'John',    // Correct
+                Surname__c = '&',        // Wrong
+                Property_Address__c = '456 Test Avenue',
+                Property_Postcode__c = 'TE2 2ND',
+                Status__c = 'Pending'
+            )
+        };
+        insert checks;
+
+        Test.startTest();
+        LandRegistryCSVParser.reparseExistingRecords();
+        Test.stopTest();
+
+        // Verify records were updated correctly
+        List<Land_Registry_Check__c> updatedChecks = [
+            SELECT Landlord_ID__c, Forename__c, Surname__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :batch.Id
+            ORDER BY Landlord_ID__c
+        ];
+
+        // First record: "Neena Manjeet and Aalok Soni" → Neena / Manjeet
+        System.assertEquals('Neena', updatedChecks[0].Forename__c);
+        System.assertEquals('Manjeet', updatedChecks[0].Surname__c);
+
+        // Second record: "John & Mary Smith" → John / Smith
+        System.assertEquals('John', updatedChecks[1].Forename__c);
+        System.assertEquals('Smith', updatedChecks[1].Surname__c);
+    }
+
+    @isTest
     static void testEmptyCSV() {
         Test.startTest();
         LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords('');

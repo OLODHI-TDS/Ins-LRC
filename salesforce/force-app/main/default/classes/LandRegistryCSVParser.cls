@@ -354,7 +354,13 @@ public with sharing class LandRegistryCSVParser {
 
     /**
      * @description Parse individual name into forename and surname
-     * Handles formats like "John Smith", "Smith, John", "Mr John Smith"
+     * Handles formats like:
+     * - "John Smith" → John / Smith
+     * - "Smith, John" → John / Smith
+     * - "Mr John Smith" → John / Smith
+     * - "John & Mary Smith" (shared surname) → John / Smith
+     * - "Mr James & Mrs Sarah Brown" (shared surname with titles) → James / Brown
+     * - "Neena Manjeet and Aalok Soni" (separate names) → Neena / Manjeet
      */
     @TestVisible
     private static Map<String, String> parseIndividualName(String fullName) {
@@ -369,21 +375,29 @@ public with sharing class LandRegistryCSVParser {
 
         String name = fullName.trim();
 
-        // Remove common titles
-        name = name.replaceAll('(?i)^(mr\\.?|mrs\\.?|ms\\.?|miss|dr\\.?|prof\\.?)\\s+', '');
+        // Remove common titles from the full name
+        String nameWithoutTitles = removeTitles(name);
 
-        // Check for "Surname, Forename" format
-        if (name.contains(',')) {
-            List<String> parts = name.split(',');
+        // Check for "Surname, Forename" format first
+        if (nameWithoutTitles.contains(',')) {
+            List<String> parts = nameWithoutTitles.split(',');
             if (parts.size() >= 2) {
                 result.put('surname', parts[0].trim());
-                result.put('forename', parts[1].trim());
+                // Handle "and" in forename part (e.g., "Smith, John and Mary")
+                String forenamePart = parts[1].trim();
+                forenamePart = extractFirstName(forenamePart);
+                result.put('forename', forenamePart);
                 return result;
             }
         }
 
+        // Check for multiple people joined by " and " or " & "
+        if (nameWithoutTitles.contains(' and ') || nameWithoutTitles.contains(' & ')) {
+            return parseMultipleNames(nameWithoutTitles);
+        }
+
         // Standard "Forename Surname" format
-        List<String> parts = name.split('\\s+');
+        List<String> parts = nameWithoutTitles.split('\\s+');
         if (parts.size() >= 2) {
             result.put('forename', parts[0]);
             // Last part is surname, everything in between is middle names (ignore)
@@ -394,5 +408,102 @@ public with sharing class LandRegistryCSVParser {
         }
 
         return result;
+    }
+
+    /**
+     * @description Remove common titles from a name string
+     */
+    private static String removeTitles(String name) {
+        // Remove titles from anywhere in the string (for cases like "Mr John & Mrs Mary")
+        return name.replaceAll('(?i)(^|\\s)(mr\\.?|mrs\\.?|ms\\.?|miss|dr\\.?|prof\\.?)\\s+', '$1').trim();
+    }
+
+    /**
+     * @description Extract first forename when multiple names joined by and/&
+     */
+    private static String extractFirstName(String name) {
+        if (name.contains(' and ')) {
+            return name.split(' and ')[0].trim();
+        }
+        if (name.contains(' & ')) {
+            return name.split(' & ')[0].trim();
+        }
+        return name;
+    }
+
+    /**
+     * @description Parse names when multiple people are joined by "and" or "&"
+     * Handles two patterns:
+     * 1. Shared surname: "John & Mary Smith" → John / Smith
+     * 2. Separate names: "Neena Manjeet and Aalok Soni" → Neena / Manjeet
+     */
+    private static Map<String, String> parseMultipleNames(String nameWithoutTitles) {
+        Map<String, String> result = new Map<String, String>{
+            'forename' => '',
+            'surname' => ''
+        };
+
+        // Determine which delimiter is used
+        String delimiter = nameWithoutTitles.contains(' and ') ? ' and ' : ' & ';
+        List<String> segments = nameWithoutTitles.split(delimiter);
+
+        if (segments.isEmpty()) {
+            return result;
+        }
+
+        // Get first segment and remove any remaining titles
+        String firstSegment = removeTitles(segments[0].trim());
+        List<String> firstSegmentParts = firstSegment.split('\\s+');
+
+        if (firstSegmentParts.size() == 1) {
+            // Shared surname pattern: "John & Mary Smith"
+            // First segment has only forename, surname is at end of full string
+            result.put('forename', firstSegmentParts[0]);
+
+            // Get surname from last word of entire name
+            List<String> allParts = nameWithoutTitles.split('\\s+');
+            if (!allParts.isEmpty()) {
+                result.put('surname', allParts[allParts.size() - 1]);
+            }
+        } else {
+            // Separate names pattern: "Neena Manjeet and Aalok Soni"
+            // First segment has full name, parse it
+            result.put('forename', firstSegmentParts[0]);
+            result.put('surname', firstSegmentParts[firstSegmentParts.size() - 1]);
+        }
+
+        return result;
+    }
+
+    /**
+     * @description Reparse name for an existing record
+     * Used for retroactive fixes
+     */
+    @AuraEnabled
+    public static void reparseExistingRecords() {
+        List<Land_Registry_Check__c> checks = [
+            SELECT Id, Landlord_Name__c, Landlord_Type__c, Forename__c, Surname__c
+            FROM Land_Registry_Check__c
+            WHERE Landlord_Type__c = 'Individual'
+        ];
+
+        List<Land_Registry_Check__c> toUpdate = new List<Land_Registry_Check__c>();
+
+        for (Land_Registry_Check__c check : checks) {
+            Map<String, String> nameParts = parseIndividualName(check.Landlord_Name__c);
+            String newForename = nameParts.get('forename');
+            String newSurname = nameParts.get('surname');
+
+            // Only update if values changed
+            if (newForename != check.Forename__c || newSurname != check.Surname__c) {
+                check.Forename__c = newForename;
+                check.Surname__c = newSurname;
+                toUpdate.add(check);
+            }
+        }
+
+        if (!toUpdate.isEmpty()) {
+            update toUpdate;
+        }
     }
 }
