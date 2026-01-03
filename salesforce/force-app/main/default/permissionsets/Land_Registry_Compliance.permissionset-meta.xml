@@ -88,12 +88,22 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
+        <field>Land_Registry_Check__c.Landlord_Email__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
         <field>Land_Registry_Check__c.Landlord_ID__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
         <field>Land_Registry_Check__c.Landlord_Name__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Land_Registry_Check__c.Landlord_Phone__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
