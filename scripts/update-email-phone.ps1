@@ -18,15 +18,35 @@ if (-not (Test-Path $CsvPath)) {
 
 Write-Host "Reading CSV file: $CsvPath" -ForegroundColor Cyan
 
-# Read CSV content
-$csvContent = Get-Content -Path $CsvPath -Raw
+# Import CSV and extract only the columns we need
+$csvData = Import-Csv -Path $CsvPath
 
-# Escape special characters for Apex string
-$csvContent = $csvContent -replace "'", "\'"
-$csvContent = $csvContent -replace "`r`n", "\n"
-$csvContent = $csvContent -replace "`n", "\n"
+Write-Host "Found $($csvData.Count) rows in CSV" -ForegroundColor Cyan
 
-# Create temporary Apex file
+# Build a simplified CSV with just Landlord ID, Phone, Email
+$simplifiedRows = @("Landlord ID,Phone,Email")
+
+foreach ($row in $csvData) {
+    $landlordId = $row.'Landlord ID'
+    $phone = $row.'Phone'
+    $email = $row.'Email'
+
+    # Skip rows without landlord ID
+    if ([string]::IsNullOrWhiteSpace($landlordId)) { continue }
+
+    # Clean up the values - remove any quotes and escape single quotes
+    $landlordId = $landlordId -replace '"', '' -replace "'", "\'"
+    $phone = $phone -replace '"', '' -replace "'", "\'"
+    $email = $email -replace '"', '' -replace "'", "\'"
+
+    $simplifiedRows += "$landlordId,$phone,$email"
+}
+
+$csvContent = $simplifiedRows -join '\n'
+
+Write-Host "Processed $($simplifiedRows.Count - 1) landlord records" -ForegroundColor Cyan
+
+# Create temporary Apex file (without BOM)
 $apexCode = @"
 String csvContent = '$csvContent';
 String result = LandRegistryCSVParser.updateEmailPhoneFromCSV(csvContent);
@@ -35,7 +55,8 @@ System.debug(LoggingLevel.INFO, result);
 "@
 
 $tempApexFile = [System.IO.Path]::GetTempFileName() + ".apex"
-$apexCode | Out-File -FilePath $tempApexFile -Encoding UTF8
+# Write without BOM
+[System.IO.File]::WriteAllText($tempApexFile, $apexCode, (New-Object System.Text.UTF8Encoding $false))
 
 Write-Host "Executing Apex against org: $TargetOrg" -ForegroundColor Cyan
 
