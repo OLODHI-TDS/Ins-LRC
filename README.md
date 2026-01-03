@@ -83,5 +83,3 @@ az deployment group create \
 ## Contacts
 
 - **Project Lead:** Omar Lodhi
-- **Compliance:** Adrian Delaporte, Karen Spriggs
-- **HMLR Contact:** Simon Devey
