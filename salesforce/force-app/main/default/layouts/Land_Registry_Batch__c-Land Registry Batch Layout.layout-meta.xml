@@ -108,7 +108,7 @@
         <fields>Status__c</fields>
         <fields>Match_Type__c</fields>
         <fields>Needs_Letter__c</fields>
-        <relatedList>Land_Registry_Checks__r</relatedList>
+        <relatedList>Land_Registry_Check__c.Batch__c</relatedList>
     </relatedLists>
     <relatedLists>
         <relatedList>RelatedNoteList</relatedList>
