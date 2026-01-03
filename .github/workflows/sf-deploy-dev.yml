@@ -38,7 +38,20 @@ jobs:
           sf org login sfdx-url --sfdx-url-file auth_url.txt --alias omardev --set-default
           rm auth_url.txt
 
+      - name: Check for deployable metadata
+        id: check-metadata
+        run: |
+          # Count files excluding .gitkeep
+          METADATA_COUNT=$(find force-app -type f ! -name ".gitkeep" | wc -l)
+          echo "metadata_count=$METADATA_COUNT" >> $GITHUB_OUTPUT
+          if [ "$METADATA_COUNT" -eq 0 ]; then
+            echo "No Salesforce metadata to deploy"
+          else
+            echo "Found $METADATA_COUNT metadata files to deploy"
+          fi
+
       - name: Validate deployment (dry run)
+        if: steps.check-metadata.outputs.metadata_count != '0'
         run: |
           sf project deploy start \
             --source-dir force-app \
@@ -47,6 +60,7 @@ jobs:
             --ignore-conflicts
 
       - name: Deploy to Salesforce
+        if: steps.check-metadata.outputs.metadata_count != '0'
         run: |
           sf project deploy start \
             --source-dir force-app \
