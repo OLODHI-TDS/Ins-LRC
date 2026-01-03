@@ -16,11 +16,16 @@ jobs:
     name: Deploy to OmarDev Sandbox
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: salesforce
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install Salesforce CLI
+        working-directory: .
         run: |
           npm install -g @salesforce/cli
           sf --version
@@ -36,7 +41,7 @@ jobs:
       - name: Validate deployment (dry run)
         run: |
           sf project deploy start \
-            --source-dir salesforce/force-app \
+            --source-dir force-app \
             --target-org omardev \
             --dry-run \
             --ignore-conflicts
@@ -44,14 +49,14 @@ jobs:
       - name: Deploy to Salesforce
         run: |
           sf project deploy start \
-            --source-dir salesforce/force-app \
+            --source-dir force-app \
             --target-org omardev \
             --ignore-conflicts
 
       - name: Run Apex Tests (if any)
         run: |
           # Only run if there are test classes
-          TEST_CLASSES=$(find salesforce/force-app -name "*Test.cls" -o -name "*_Test.cls" | wc -l)
+          TEST_CLASSES=$(find force-app -name "*Test.cls" -o -name "*_Test.cls" | wc -l)
           if [ "$TEST_CLASSES" -gt 0 ]; then
             sf apex run test --target-org omardev --wait 10 --result-format human
           else
