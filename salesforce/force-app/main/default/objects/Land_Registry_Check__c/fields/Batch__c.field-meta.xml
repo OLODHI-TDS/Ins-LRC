@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Batch__c</fullName>
+    <description>Parent batch this check belongs to</description>
+    <externalId>false</externalId>
+    <label>Batch</label>
+    <referenceTo>Land_Registry_Batch__c</referenceTo>
+    <relationshipLabel>Land Registry Checks</relationshipLabel>
+    <relationshipName>Land_Registry_Checks</relationshipName>
+    <relationshipOrder>0</relationshipOrder>
+    <reparentableMasterDetail>false</reparentableMasterDetail>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>MasterDetail</type>
+    <writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

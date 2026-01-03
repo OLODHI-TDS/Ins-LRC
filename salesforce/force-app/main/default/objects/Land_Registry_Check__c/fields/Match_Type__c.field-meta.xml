@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Match_Type__c</fullName>
+    <description>Type of match from HMLR response</description>
+    <externalId>false</externalId>
+    <label>Match Type</label>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Property and Person Match</fullName>
+                <default>false</default>
+                <label>Property and Person Match</label>
+            </value>
+            <value>
+                <fullName>Property Only</fullName>
+                <default>false</default>
+                <label>Property Only</label>
+            </value>
+            <value>
+                <fullName>No Property Match</fullName>
+                <default>false</default>
+                <label>No Property Match</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>
