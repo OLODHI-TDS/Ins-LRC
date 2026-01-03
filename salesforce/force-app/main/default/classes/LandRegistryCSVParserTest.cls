@@ -166,7 +166,7 @@ private class LandRegistryCSVParserTest {
     }
 
     @isTest
-    static void testReparseExistingRecords() {
+    static void testUpdateEmailPhoneFromCSV() {
         // Create a batch
         Land_Registry_Batch__c batch = new Land_Registry_Batch__c(
             Upload_Date__c = DateTime.now(),
@@ -175,15 +175,13 @@ private class LandRegistryCSVParserTest {
         );
         insert batch;
 
-        // Create records with incorrectly parsed names
+        // Create records without email/phone
         List<Land_Registry_Check__c> checks = new List<Land_Registry_Check__c>{
             new Land_Registry_Check__c(
                 Batch__c = batch.Id,
                 Landlord_ID__c = 'LL001',
-                Landlord_Name__c = 'Neena Manjeet and Aalok Soni',
+                Landlord_Name__c = 'John Smith',
                 Landlord_Type__c = 'Individual',
-                Forename__c = 'Neena',  // Wrong - was taking first word
-                Surname__c = 'Soni',     // Wrong - was taking last word
                 Property_Address__c = '123 Test Street',
                 Property_Postcode__c = 'TE1 1ST',
                 Status__c = 'Pending'
@@ -191,10 +189,8 @@ private class LandRegistryCSVParserTest {
             new Land_Registry_Check__c(
                 Batch__c = batch.Id,
                 Landlord_ID__c = 'LL002',
-                Landlord_Name__c = 'John & Mary Smith',
+                Landlord_Name__c = 'Jane Doe',
                 Landlord_Type__c = 'Individual',
-                Forename__c = 'John',    // Correct
-                Surname__c = '&',        // Wrong
                 Property_Address__c = '456 Test Avenue',
                 Property_Postcode__c = 'TE2 2ND',
                 Status__c = 'Pending'
@@ -202,25 +198,32 @@ private class LandRegistryCSVParserTest {
         };
         insert checks;
 
+        // CSV with email and phone data
+        String csvContent = 'Landlord ID,Name,Phone,Email\n' +
+            'LL001,John Smith,07123456789,john@test.com\n' +
+            'LL002,Jane Doe,07987654321,jane@test.com\n' +
+            'LL003,Not Found,07111111111,notfound@test.com';
+
         Test.startTest();
-        LandRegistryCSVParser.reparseExistingRecords();
+        String result = LandRegistryCSVParser.updateEmailPhoneFromCSV(csvContent);
         Test.stopTest();
+
+        // Verify result message
+        System.assert(result.contains('Update Complete'), 'Should show success message');
+        System.assert(result.contains('Records updated: 2'), 'Should update 2 records');
 
         // Verify records were updated correctly
         List<Land_Registry_Check__c> updatedChecks = [
-            SELECT Landlord_ID__c, Forename__c, Surname__c
+            SELECT Landlord_ID__c, Landlord_Email__c, Landlord_Phone__c
             FROM Land_Registry_Check__c
             WHERE Batch__c = :batch.Id
             ORDER BY Landlord_ID__c
         ];
 
-        // First record: "Neena Manjeet and Aalok Soni" → Neena / Manjeet
-        System.assertEquals('Neena', updatedChecks[0].Forename__c);
-        System.assertEquals('Manjeet', updatedChecks[0].Surname__c);
-
-        // Second record: "John & Mary Smith" → John / Smith
-        System.assertEquals('John', updatedChecks[1].Forename__c);
-        System.assertEquals('Smith', updatedChecks[1].Surname__c);
+        System.assertEquals('john@test.com', updatedChecks[0].Landlord_Email__c);
+        System.assertEquals('07123456789', updatedChecks[0].Landlord_Phone__c);
+        System.assertEquals('jane@test.com', updatedChecks[1].Landlord_Email__c);
+        System.assertEquals('07987654321', updatedChecks[1].Landlord_Phone__c);
     }
 
     @isTest
