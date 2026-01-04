@@ -304,14 +304,20 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | 2.4 | Send email via ACS with Excel attachment | ✅ Tested |
 | 2.5 | Return success/failure response to Salesforce | ✅ Implemented |
 
-#### Phase 3: Salesforce Integration
+#### Phase 3: Salesforce Integration ✅ Complete
 | Step | Task | Status |
 |------|------|--------|
-| 3.1 | Create Apex class `HMLRCompanySubmission` | ⏳ Pending |
-| 3.2 | Query company records from batch | ⏳ Pending |
-| 3.3 | Call Azure Function with JSON payload | ⏳ Pending |
-| 3.4 | Update record statuses to "Submitted to HMLR" | ⏳ Pending |
-| 3.5 | Add "Send to HMLR" button to dashboard | ⏳ Pending |
+| 3.1 | Create Apex class `HMLRCompanySubmission` | ✅ Deployed |
+| 3.2 | Query company records from batch | ✅ Implemented |
+| 3.3 | Call Azure Function with JSON payload | ✅ Implemented |
+| 3.4 | Update record statuses to "Submitted to HMLR" | ✅ Implemented |
+| 3.5 | Add Remote Site Setting | ✅ Deployed |
+| 3.6 | Configure Azure Function Key in Custom Setting | ⏳ Manual step |
+
+**Configuration Required:**
+After deployment, set up `Land_Registry_Settings__c` custom setting with:
+- `Azure_Function_Key__c`: The function key from Azure
+- `Azure_Function_URL__c`: `https://func-landreg-api.azurewebsites.net` (optional, has default)
 
 ### HMLR Excel Format
 
@@ -517,6 +523,9 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 - ✅ Azure Communication Services `acs-landreg` with email domain configured
 - ✅ `SendCompanyBatchToHMLR` Azure Function deployed and tested
 - ✅ GitHub Actions CI/CD for Azure Functions (.NET 8 build and deploy)
+- ✅ `HMLRCompanySubmission` Apex class for Salesforce → Azure integration
+- ✅ `Land_Registry_Settings__c` custom setting for Azure configuration
+- ✅ Remote Site Setting for Azure Functions endpoint
 
 ---
 
