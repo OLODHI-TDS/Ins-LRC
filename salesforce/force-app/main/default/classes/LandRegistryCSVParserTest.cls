@@ -259,4 +259,363 @@ private class LandRegistryCSVParserTest {
         System.assertEquals(1, preview.size());
         System.assertEquals('Smith, John', preview[0].get('landlordName'));
     }
+
+    @isTest
+    static void testAddressLineCleaning() {
+        // Test Room X removal
+        System.assertEquals('123 High Street', LandRegistryCSVParser.cleanAddressLine('Room 5 123 High Street'));
+        System.assertEquals('456 Oak Avenue', LandRegistryCSVParser.cleanAddressLine('room 12 456 Oak Avenue'));
+        System.assertEquals('789 Elm Road', LandRegistryCSVParser.cleanAddressLine('ROOM 3 789 Elm Road'));
+
+        // Test comma is kept (splitting happens before cleaning)
+        System.assertEquals('Flat 2, 123 High Street', LandRegistryCSVParser.cleanAddressLine('Flat 2, 123 High Street'));
+
+        // Test hyphens are preserved (important for address numbers like 85-89)
+        System.assertEquals('85-89 Plungington Road', LandRegistryCSVParser.cleanAddressLine('85-89 Plungington Road'));
+        System.assertEquals('123 High-Street', LandRegistryCSVParser.cleanAddressLine('123 High-Street'));
+
+        // Test periods and apostrophes are removed
+        System.assertEquals('Apt 4B, Kings Road', LandRegistryCSVParser.cleanAddressLine('Apt. 4B, King\'s Road'));
+        System.assertEquals('St Johns Close', LandRegistryCSVParser.cleanAddressLine('St. John\'s Close'));
+
+        // Test multiple spaces collapsed
+        System.assertEquals('123 High Street', LandRegistryCSVParser.cleanAddressLine('123   High   Street'));
+
+        // Test empty and null
+        System.assertEquals('', LandRegistryCSVParser.cleanAddressLine(''));
+        System.assertEquals('', LandRegistryCSVParser.cleanAddressLine(null));
+    }
+
+    @isTest
+    static void testPostcodeFormatting() {
+        // Standard UK postcodes
+        System.assertEquals('SW1A 1AA', LandRegistryCSVParser.formatPostcode('sw1a1aa'));
+        System.assertEquals('SW1A 1AA', LandRegistryCSVParser.formatPostcode('SW1A1AA'));
+        System.assertEquals('SW1A 1AA', LandRegistryCSVParser.formatPostcode('SW1A 1AA'));
+        System.assertEquals('SW1A 1AA', LandRegistryCSVParser.formatPostcode('  sw1a  1aa  '));
+
+        // Various formats
+        System.assertEquals('M1 2AB', LandRegistryCSVParser.formatPostcode('m12ab'));
+        System.assertEquals('B1 1CD', LandRegistryCSVParser.formatPostcode('B1 1CD'));
+        System.assertEquals('LS1 1EF', LandRegistryCSVParser.formatPostcode('ls11ef'));
+        System.assertEquals('EC1A 1BB', LandRegistryCSVParser.formatPostcode('ec1a1bb'));
+
+        // Short postcodes (edge case)
+        System.assertEquals('AB12', LandRegistryCSVParser.formatPostcode('ab12'));
+
+        // Empty and null
+        System.assertEquals('', LandRegistryCSVParser.formatPostcode(''));
+        System.assertEquals('', LandRegistryCSVParser.formatPostcode(null));
+    }
+
+    @isTest
+    static void testAddressWithCommaSplitting() {
+        // Create a CSV with comma-separated address parts
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,"Flat 2, 123 High Street",London,Greater London,SW1A 1AA';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        System.assertEquals(true, result.success, 'Parse should succeed');
+
+        // Verify address was split onto separate lines
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c, Property_Postcode__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        // Address should have each part on its own line
+        System.assert(check.Property_Address__c.contains('\n'), 'Address should contain line breaks');
+
+        // Split and verify parts
+        List<String> addressLines = check.Property_Address__c.split('\n');
+        System.assert(addressLines.size() >= 2, 'Should have at least 2 address lines');
+        System.assertEquals('Flat 2', addressLines[0], 'First line should be Flat 2');
+        System.assertEquals('123 High Street', addressLines[1], 'Second line should be 123 High Street');
+
+        // Verify postcode is formatted
+        System.assertEquals('SW1A 1AA', check.Property_Postcode__c, 'Postcode should be formatted');
+    }
+
+    @isTest
+    static void testAddressWithRoomRemoval() {
+        // Create a CSV with "Room X" in address
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,Room 5 123 High Street,London,Greater London,sw1a1aa';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        System.assertEquals(true, result.success, 'Parse should succeed');
+
+        // Verify Room X was removed
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c, Property_Postcode__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        System.assert(!check.Property_Address__c.containsIgnoreCase('room'), 'Room should be removed from address');
+        System.assert(check.Property_Address__c.contains('123 High Street'), 'Address should still contain street');
+
+        // Verify postcode was formatted correctly
+        System.assertEquals('SW1A 1AA', check.Property_Postcode__c, 'Postcode should be uppercase with space');
+    }
+
+    @isTest
+    static void testAddressCleaningOnMultiLineAddress() {
+        // Create a CSV with various address formats needing cleaning
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,Unit 5-A Business Park,Manchester,Greater Manchester,m12ab';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c, Property_Postcode__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        // Verify address has each component on its own line
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(3, lines.size(), 'Should have 3 lines: address, town, county');
+
+        // Verify hyphen is preserved (important for address numbers)
+        System.assertEquals('Unit 5-A Business Park', lines[0], 'Hyphen should be preserved');
+        System.assertEquals('Manchester', lines[1], 'Town should be on second line');
+        System.assertEquals('Greater Manchester', lines[2], 'County should be on third line');
+
+        // Verify postcode formatting
+        System.assertEquals('M1 2AB', check.Property_Postcode__c, 'Postcode should be formatted correctly');
+    }
+
+    @isTest
+    static void testAddressWithCommaSplittingAndHyphen() {
+        // Test the specific case: "Flat 2, 85-89 Plungington Road" (with comma)
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,Jeffrey Duddy,"Flat 2, 85-89 Plungington Road",Preston,Lancashire,PR1 1AA';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        // Verify address is split correctly
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(4, lines.size(), 'Should have 4 lines');
+        System.assertEquals('Flat 2', lines[0], 'First line should be Flat 2');
+        System.assertEquals('85-89 Plungington Road', lines[1], 'Second line should preserve hyphen');
+        System.assertEquals('Preston', lines[2], 'Third line should be town');
+        System.assertEquals('Lancashire', lines[3], 'Fourth line should be county');
+    }
+
+    @isTest
+    static void testAddressWithFlatPatternNoComma() {
+        // Test the real-world case: "Flat 2 85-89 Plungington Road" (NO comma - space separated)
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,Jeffrey Duddy,Flat 2 85-89 Plungington Road,Preston,Lancashire,PR1 7EN';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        // Verify address is split correctly using pattern matching
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(4, lines.size(), 'Should have 4 lines');
+        System.assertEquals('Flat 2', lines[0], 'First line should be Flat 2');
+        System.assertEquals('85-89 Plungington Road', lines[1], 'Second line should be street with hyphen preserved');
+        System.assertEquals('Preston', lines[2], 'Third line should be town');
+        System.assertEquals('Lancashire', lines[3], 'Fourth line should be county');
+    }
+
+    @isTest
+    static void testAddressWithUnitPattern() {
+        // Test Unit pattern: "Unit 5A 123 Business Park"
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,Unit 5A 123 Business Park,Manchester,Greater Manchester,M1 2AB';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(4, lines.size(), 'Should have 4 lines');
+        System.assertEquals('Unit 5A', lines[0], 'First line should be Unit 5A');
+        System.assertEquals('123 Business Park', lines[1], 'Second line should be street address');
+    }
+
+    @isTest
+    static void testAddressWithBuildingName() {
+        // Test building name pattern: "Flat 9 Canterbury Mansions Lymington Road"
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,Flat 9 Canterbury Mansions Lymington Road,London,Greater London,NW6 1AB';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(5, lines.size(), 'Should have 5 lines');
+        System.assertEquals('Flat 9', lines[0], 'First line should be Flat 9');
+        System.assertEquals('Canterbury Mansions', lines[1], 'Second line should be building name');
+        System.assertEquals('Lymington Road', lines[2], 'Third line should be street');
+        System.assertEquals('London', lines[3], 'Fourth line should be town');
+        System.assertEquals('Greater London', lines[4], 'Fifth line should be county');
+    }
+
+    @isTest
+    static void testAddressWithFloorDesignation() {
+        // Test floor designation pattern: "First Floor Flat 28 Pembroke Road"
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,First Floor Flat 28 Pembroke Road,Bristol,Avon,BS8 3AB';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(4, lines.size(), 'Should have 4 lines');
+        System.assertEquals('First Floor Flat', lines[0], 'First line should be First Floor Flat');
+        System.assertEquals('28 Pembroke Road', lines[1], 'Second line should be street address');
+        System.assertEquals('Bristol', lines[2], 'Third line should be town');
+        System.assertEquals('Avon', lines[3], 'Fourth line should be county');
+    }
+
+    @isTest
+    static void testAddressWithNumberAndBuildingName() {
+        // Test number + building name: "2 Gaynes Park Mansions Coopersale Street"
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,2 Gaynes Park Mansions Coopersale Street,Epping,Essex,CM16 5AB';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(4, lines.size(), 'Should have 4 lines');
+        System.assertEquals('2 Gaynes Park Mansions', lines[0], 'First line should be building with number');
+        System.assertEquals('Coopersale Street', lines[1], 'Second line should be street');
+        System.assertEquals('Epping', lines[2], 'Third line should be town');
+        System.assertEquals('Essex', lines[3], 'Fourth line should be county');
+    }
+
+    @isTest
+    static void testAddressWithCourtBuilding() {
+        // Test Court building name: "15 Ashdown Court Victoria Road"
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,15 Ashdown Court Victoria Road,Brighton,East Sussex,BN1 3AB';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(4, lines.size(), 'Should have 4 lines');
+        System.assertEquals('15 Ashdown Court', lines[0], 'First line should be building with number');
+        System.assertEquals('Victoria Road', lines[1], 'Second line should be street');
+    }
+
+    @isTest
+    static void testAddressGroundFloorFlat() {
+        // Test Ground Floor Flat pattern
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,Ground Floor Flat 5 High Street,London,Greater London,SW1A 1AA';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(4, lines.size(), 'Should have 4 lines');
+        System.assertEquals('Ground Floor Flat', lines[0], 'First line should be Ground Floor Flat');
+        System.assertEquals('5 High Street', lines[1], 'Second line should be street address');
+    }
+
+    @isTest
+    static void testAddressSimpleStreet() {
+        // Test simple street address (no pattern to split)
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           'LL001,John Smith,123 High Street,London,Greater London,SW1A 1AA';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        Land_Registry_Check__c check = [
+            SELECT Property_Address__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            LIMIT 1
+        ];
+
+        List<String> lines = check.Property_Address__c.split('\n');
+        System.assertEquals(3, lines.size(), 'Should have 3 lines');
+        System.assertEquals('123 High Street', lines[0], 'First line should be full street address');
+        System.assertEquals('London', lines[1], 'Second line should be town');
+        System.assertEquals('Greater London', lines[2], 'Third line should be county');
+    }
 }

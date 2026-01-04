@@ -42,6 +42,8 @@ public with sharing class LandRegistryCSVParser {
         public String town;
         public String county;
         public String postcode;
+        public String email;
+        public String phone;
     }
 
     /**
@@ -225,6 +227,10 @@ public with sharing class LandRegistryCSVParser {
                 columnIndex.put('county', i);
             } else if ((header.contains('postcode') || header.contains('post code') || header.contains('zip')) && !columnIndex.containsKey('postcode')) {
                 columnIndex.put('postcode', i);
+            } else if ((header == 'email' || header == 'e-mail' || header.contains('email address')) && !columnIndex.containsKey('email')) {
+                columnIndex.put('email', i);
+            } else if ((header == 'phone' || header == 'telephone' || header.contains('phone no') || header.contains('phone number')) && !columnIndex.containsKey('phone')) {
+                columnIndex.put('phone', i);
             }
         }
 
@@ -282,6 +288,12 @@ public with sharing class LandRegistryCSVParser {
         if (columnIndex.containsKey('postcode') && columnIndex.get('postcode') < values.size()) {
             row.postcode = values[columnIndex.get('postcode')];
         }
+        if (columnIndex.containsKey('email') && columnIndex.get('email') < values.size()) {
+            row.email = values[columnIndex.get('email')];
+        }
+        if (columnIndex.containsKey('phone') && columnIndex.get('phone') < values.size()) {
+            row.phone = values[columnIndex.get('phone')];
+        }
 
         return row;
     }
@@ -296,7 +308,9 @@ public with sharing class LandRegistryCSVParser {
         check.Landlord_ID__c = row.landlordId;
         check.Landlord_Name__c = row.landlordName;
         check.Property_Address__c = buildFullAddress(row);
-        check.Property_Postcode__c = row.postcode;
+        check.Property_Postcode__c = formatPostcode(row.postcode);
+        check.Landlord_Email__c = row.email;
+        check.Landlord_Phone__c = row.phone;
         check.Status__c = 'Pending';
 
         // Determine landlord type
@@ -314,16 +328,194 @@ public with sharing class LandRegistryCSVParser {
     }
 
     /**
-     * @description Build full address from components
+     * @description Build full address from components with data cleaning
+     * Applies: comma splitting, Room X removal, punctuation cleaning
+     * Each address component appears on its own line
      */
     private static String buildFullAddress(CSVRow row) {
-        List<String> parts = new List<String>();
+        List<String> addressLines = new List<String>();
 
-        if (String.isNotBlank(row.addressLine1)) parts.add(row.addressLine1);
-        if (String.isNotBlank(row.town)) parts.add(row.town);
-        if (String.isNotBlank(row.county)) parts.add(row.county);
+        // Process address line 1 - split by commas FIRST, then clean each part
+        if (String.isNotBlank(row.addressLine1)) {
+            List<String> splitParts = splitAddressByCommas(row.addressLine1);
+            for (String part : splitParts) {
+                String cleaned = cleanAddressLine(part);
+                if (String.isNotBlank(cleaned)) {
+                    addressLines.add(cleaned);
+                }
+            }
+        }
 
-        return String.join(parts, '\n');
+        // Add town and county as separate lines
+        if (String.isNotBlank(row.town)) {
+            String cleanedTown = cleanAddressLine(row.town);
+            if (String.isNotBlank(cleanedTown)) {
+                addressLines.add(cleanedTown);
+            }
+        }
+        if (String.isNotBlank(row.county)) {
+            String cleanedCounty = cleanAddressLine(row.county);
+            if (String.isNotBlank(cleanedCounty)) {
+                addressLines.add(cleanedCounty);
+            }
+        }
+
+        return String.join(addressLines, '\n');
+    }
+
+    /**
+     * @description Clean an address line
+     * - Removes "Room X" patterns
+     * - Keeps hyphens (part of address numbers like "85-89")
+     * - Removes other punctuation (periods, apostrophes, etc.)
+     * - Collapses multiple spaces
+     * - Trims leading/trailing whitespace
+     */
+    @TestVisible
+    private static String cleanAddressLine(String addressLine) {
+        if (String.isBlank(addressLine)) {
+            return '';
+        }
+
+        String cleaned = addressLine;
+
+        // Remove "Room X" patterns (case-insensitive)
+        cleaned = cleaned.replaceAll('(?i)\\broom\\s+\\d+\\b', '');
+
+        // Remove specific punctuation but KEEP hyphens (they're part of addresses like "85-89")
+        // Remove: periods, apostrophes, quotes, semicolons, colons
+        cleaned = cleaned.replaceAll('[.\'";:]', '');
+
+        // Collapse multiple spaces into single space
+        cleaned = cleaned.replaceAll('\\s+', ' ');
+
+        return cleaned.trim();
+    }
+
+    /**
+     * @description Split an address line into separate parts for HMLR format
+     * Handles various UK address patterns:
+     * 1. Comma-separated: "Flat 2, 85 High Street" -> ["Flat 2", "85 High Street"]
+     * 2. Flat/Unit/Apt: "Flat 9 Canterbury Mansions" -> ["Flat 9", "Canterbury Mansions"]
+     * 3. Floor + Flat: "First Floor Flat 28 Road" -> ["First Floor Flat", "28 Road"]
+     * 4. Building names: "2 Gaynes Park Mansions Street" -> ["2 Gaynes Park Mansions", "Street"]
+     */
+    private static List<String> splitAddressByCommas(String addressLine) {
+        List<String> result = new List<String>();
+
+        if (String.isBlank(addressLine)) {
+            return result;
+        }
+
+        String trimmedAddress = addressLine.trim();
+
+        // 1. First try splitting by comma
+        if (trimmedAddress.contains(',')) {
+            List<String> parts = trimmedAddress.split(',');
+            for (String part : parts) {
+                String trimmed = part.trim();
+                if (String.isNotBlank(trimmed)) {
+                    result.add(trimmed);
+                }
+            }
+            return result;
+        }
+
+        // 2. Floor + Flat pattern: "First Floor Flat 28 Road", "Ground Floor Flat 5 Street"
+        String floorFlatPattern = '(?i)^((?:First|Second|Third|Ground|Top|Lower|Upper|Basement)\\s+(?:Floor\\s+)?(?:Flat|Floor))\\s+(.+)$';
+        Pattern pFloor = Pattern.compile(floorFlatPattern);
+        Matcher mFloor = pFloor.matcher(trimmedAddress);
+        if (mFloor.matches()) {
+            result.add(mFloor.group(1).trim());
+            result.add(mFloor.group(2).trim());
+            return result;
+        }
+
+        // 3. Flat/Unit/Apt/Apartment pattern: "Flat 9 Canterbury Mansions Lymington Road"
+        String flatPattern = '(?i)^((?:Flat|Unit|Apt|Apartment)\\s+\\d+[A-Za-z]?)\\s+(.+)$';
+        Pattern pFlat = Pattern.compile(flatPattern);
+        Matcher mFlat = pFlat.matcher(trimmedAddress);
+        if (mFlat.matches()) {
+            result.add(mFlat.group(1).trim());
+            // Now try to further split the rest if it contains a building name followed by a street
+            String rest = mFlat.group(2).trim();
+            List<String> restParts = splitBuildingFromStreet(rest);
+            result.addAll(restParts);
+            return result;
+        }
+
+        // 4. Number + Building Name pattern: "2 Gaynes Park Mansions Coopersale Street"
+        // Look for building name keywords and split after them
+        List<String> buildingParts = splitBuildingFromStreet(trimmedAddress);
+        if (buildingParts.size() > 1) {
+            return buildingParts;
+        }
+
+        // No pattern matched - return as single line
+        result.add(trimmedAddress);
+        return result;
+    }
+
+    /**
+     * @description Try to split a building name from a street name
+     * Looks for building keywords (Mansions, Court, House, etc.) and splits after the building name
+     * Example: "Canterbury Mansions Lymington Road" -> ["Canterbury Mansions", "Lymington Road"]
+     * Example: "2 Gaynes Park Mansions Coopersale Street" -> ["2 Gaynes Park Mansions", "Coopersale Street"]
+     */
+    private static List<String> splitBuildingFromStreet(String address) {
+        List<String> result = new List<String>();
+
+        if (String.isBlank(address)) {
+            return result;
+        }
+
+        // Building name keywords - if found, split after them
+        // Pattern: anything ending with building keyword, followed by street (starting with word or number)
+        String buildingKeywords = '(?:Mansions?|Court|House|Lodge|Tower|Building|Gardens?|Apartments?|Villas?|Chambers?)';
+        String buildingPattern = '(?i)^(.+?\\s+' + buildingKeywords + ')\\s+(.+)$';
+
+        Pattern p = Pattern.compile(buildingPattern);
+        Matcher m = p.matcher(address);
+
+        if (m.matches()) {
+            String building = m.group(1).trim();
+            String street = m.group(2).trim();
+
+            // Only split if street part looks like a street (starts with number or capital letter word)
+            // Avoid splitting "The Vista Building" from "30 Calderwood Street" incorrectly
+            if (street.length() > 0) {
+                result.add(building);
+                result.add(street);
+                return result;
+            }
+        }
+
+        // No building pattern found - return as single item
+        result.add(address.trim());
+        return result;
+    }
+
+    /**
+     * @description Format postcode with proper spacing and uppercase
+     * E.g., "sw1a1aa" -> "SW1A 1AA"
+     */
+    @TestVisible
+    private static String formatPostcode(String postcode) {
+        if (String.isBlank(postcode)) {
+            return '';
+        }
+
+        // Remove all spaces and convert to uppercase
+        String cleaned = postcode.replaceAll('\\s+', '').toUpperCase();
+
+        // UK postcodes have last 3 characters as the inward code
+        if (cleaned.length() >= 5) {
+            String outward = cleaned.substring(0, cleaned.length() - 3);
+            String inward = cleaned.substring(cleaned.length() - 3);
+            return outward + ' ' + inward;
+        }
+
+        return cleaned;
     }
 
     /**
@@ -710,20 +902,34 @@ public with sharing class LandRegistryCSVParser {
             if (addressInfo != null) {
                 Boolean needsUpdate = false;
 
-                // Build full address
-                List<String> addressParts = new List<String>();
+                // Build full address with cleaning
+                List<String> addressLines = new List<String>();
+
+                // Process address line 1 - split by commas FIRST, then clean each part
                 if (String.isNotBlank(addressInfo.get('addressLine1'))) {
-                    addressParts.add(addressInfo.get('addressLine1'));
+                    List<String> splitParts = splitAddressByCommas(addressInfo.get('addressLine1'));
+                    for (String part : splitParts) {
+                        String cleaned = cleanAddressLine(part);
+                        if (String.isNotBlank(cleaned)) {
+                            addressLines.add(cleaned);
+                        }
+                    }
                 }
                 if (String.isNotBlank(addressInfo.get('town'))) {
-                    addressParts.add(addressInfo.get('town'));
+                    String cleanedTown = cleanAddressLine(addressInfo.get('town'));
+                    if (String.isNotBlank(cleanedTown)) {
+                        addressLines.add(cleanedTown);
+                    }
                 }
                 if (String.isNotBlank(addressInfo.get('county'))) {
-                    addressParts.add(addressInfo.get('county'));
+                    String cleanedCounty = cleanAddressLine(addressInfo.get('county'));
+                    if (String.isNotBlank(cleanedCounty)) {
+                        addressLines.add(cleanedCounty);
+                    }
                 }
 
-                String newAddress = String.join(addressParts, '\n');
-                String newPostcode = addressInfo.get('postcode');
+                String newAddress = String.join(addressLines, '\n');
+                String newPostcode = formatPostcode(addressInfo.get('postcode'));
 
                 if (String.isNotBlank(newAddress) && newAddress != record.Property_Address__c) {
                     record.Property_Address__c = newAddress;
