@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using Azure.Communication.Email;
+using Azure.Storage.Blobs;
 
 var host = new HostBuilder()
     .ConfigureFunctionsWebApplication()
@@ -25,6 +26,12 @@ var host = new HostBuilder()
             var connectionString = secrets.GetSecret("acs-connection-string").Value.Value;
             return new EmailClient(connectionString);
         });
+
+        // Register Blob Service client for document storage
+        var blobConnectionString = Environment.GetEnvironmentVariable("BLOB_STORAGE_CONNECTION_STRING")
+            ?? Environment.GetEnvironmentVariable("AzureWebJobsStorage")
+            ?? "UseDevelopmentStorage=true";
+        services.AddSingleton(new BlobServiceClient(blobConnectionString));
     })
     .Build();
 
