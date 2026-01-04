@@ -1,0 +1,62 @@
+<template>
+    <lightning-card title="Company Landlord Processing" icon-name="utility:email">
+        <div class="slds-p-around_medium">
+            <p class="slds-m-bottom_medium slds-text-color_weak">
+                Submit company landlord records to HMLR via email.
+                An Excel file will be generated and sent to HMLR Data Services.
+            </p>
+            <lightning-button
+                label={buttonLabel}
+                variant="brand"
+                onclick={handleClick}
+                disabled={isProcessing}
+                icon-name="utility:email">
+            </lightning-button>
+            <template if:true={isLoading}>
+                <lightning-spinner alternative-text="Loading..." size="small" class="slds-m-left_small"></lightning-spinner>
+            </template>
+        </div>
+    </lightning-card>
+
+    <!-- Confirmation Modal -->
+    <template if:true={showModal}>
+        <section role="dialog" tabindex="-1" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" onclick={closeModal}>
+                        <lightning-icon icon-name="utility:close" size="small"></lightning-icon>
+                    </button>
+                    <h2 class="slds-modal__title slds-hyphenate">Process Company Landlords</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <div class="slds-text-align_center slds-m-bottom_medium">
+                        <lightning-icon icon-name="utility:company" size="large" class="slds-m-bottom_small"></lightning-icon>
+                        <p class="slds-text-heading_medium">{pendingCount} Company Records</p>
+                    </div>
+                    <p>You are about to submit these company landlord records to HMLR Data Services.</p>
+                    <div class="slds-box slds-theme_shade slds-m-top_medium">
+                        <p class="slds-text-body_small">
+                            <lightning-icon icon-name="utility:info" size="x-small" class="slds-m-right_x-small"></lightning-icon>
+                            An email with an Excel attachment will be sent. Individual landlord records will not be affected.
+                        </p>
+                    </div>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button
+                        label="Cancel"
+                        onclick={closeModal}
+                        disabled={isProcessing}>
+                    </lightning-button>
+                    <lightning-button
+                        label={submitButtonLabel}
+                        variant="brand"
+                        onclick={handleSubmit}
+                        disabled={isProcessing}
+                        icon-name="utility:email">
+                    </lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+</template>

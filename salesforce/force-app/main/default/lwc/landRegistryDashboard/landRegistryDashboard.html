@@ -113,4 +113,35 @@
         </section>
         <div class="slds-backdrop slds-backdrop_open"></div>
     </template>
+
+    <!-- Company Processing Modal -->
+    <template if:true={showCompanyProcessingModal}>
+        <section role="dialog" tabindex="-1" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" onclick={closeCompanyProcessingModal}>
+                        <lightning-icon icon-name="utility:close" size="small"></lightning-icon>
+                    </button>
+                    <h2 class="slds-modal__title">Process Company Landlords</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p>You are about to submit <strong>{pendingCompanyCount}</strong> company landlord records from batch <strong>{selectedBatch.name}</strong> to HMLR.</p>
+                    <p class="slds-m-top_small slds-text-color_weak">
+                        An email with an Excel attachment will be sent to HMLR Data Services.
+                        Individual landlord records will not be affected.
+                    </p>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Cancel" onclick={closeCompanyProcessingModal} disabled={isProcessingCompanies}></lightning-button>
+                    <lightning-button
+                        label={companyProcessButtonLabel}
+                        variant="brand"
+                        onclick={confirmProcessCompanies}
+                        disabled={isProcessingCompanies}>
+                    </lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
 </template>

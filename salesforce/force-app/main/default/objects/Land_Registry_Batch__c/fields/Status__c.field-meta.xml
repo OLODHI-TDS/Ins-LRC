@@ -23,6 +23,11 @@
                 <label>Processing</label>
             </value>
             <value>
+                <fullName>Partially Processed</fullName>
+                <default>false</default>
+                <label>Partially Processed</label>
+            </value>
+            <value>
                 <fullName>Complete</fullName>
                 <default>false</default>
                 <label>Complete</label>

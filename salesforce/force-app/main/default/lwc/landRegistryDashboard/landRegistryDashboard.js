@@ -5,6 +5,8 @@ import { refreshApex } from '@salesforce/apex';
 import getRecentBatches from '@salesforce/apex/LandRegistryDashboardController.getRecentBatches';
 import getDashboardMetrics from '@salesforce/apex/LandRegistryDashboardController.getDashboardMetrics';
 import startBatchProcessing from '@salesforce/apex/LandRegistryDashboardController.startBatchProcessing';
+import submitCompanyBatch from '@salesforce/apex/HMLRCompanySubmission.submitCompanyBatch';
+import getPendingCompanyCount from '@salesforce/apex/HMLRCompanySubmission.getPendingCompanyCount';
 
 const COLUMNS = [
     {
@@ -40,7 +42,8 @@ const COLUMNS = [
         typeAttributes: {
             rowActions: [
                 { label: 'View', name: 'view' },
-                { label: 'Start Processing', name: 'process' }
+                { label: 'Process Companies Only', name: 'process_companies' },
+                { label: 'Start Full Processing', name: 'process' }
             ]
         }
     }
@@ -56,7 +59,10 @@ export default class LandRegistryDashboard extends NavigationMixin(LightningElem
     };
     @track isLoading = true;
     @track showProcessingModal = false;
+    @track showCompanyProcessingModal = false;
     @track selectedBatch = null;
+    @track pendingCompanyCount = 0;
+    @track isProcessingCompanies = false;
 
     columns = COLUMNS;
     wiredBatchesResult;
@@ -64,6 +70,10 @@ export default class LandRegistryDashboard extends NavigationMixin(LightningElem
 
     get hasBatches() {
         return this.batches && this.batches.length > 0;
+    }
+
+    get companyProcessButtonLabel() {
+        return this.isProcessingCompanies ? 'Processing...' : 'Submit to HMLR';
     }
 
     @wire(getRecentBatches)
@@ -150,8 +160,57 @@ export default class LandRegistryDashboard extends NavigationMixin(LightningElem
                     this.showError('Only batches in Pending status can be processed');
                 }
                 break;
+            case 'process_companies':
+                this.handleProcessCompaniesOnly(row);
+                break;
             default:
                 break;
+        }
+    }
+
+    async handleProcessCompaniesOnly(row) {
+        // Check if batch has pending company records
+        try {
+            const count = await getPendingCompanyCount({ batchId: row.id });
+            if (count === 0) {
+                this.showError('No pending company records found in this batch.');
+                return;
+            }
+            this.selectedBatch = row;
+            this.pendingCompanyCount = count;
+            this.showCompanyProcessingModal = true;
+        } catch (error) {
+            this.showError('Error checking company records: ' + (error.body?.message || error.message));
+        }
+    }
+
+    closeCompanyProcessingModal() {
+        this.showCompanyProcessingModal = false;
+        this.selectedBatch = null;
+        this.pendingCompanyCount = 0;
+    }
+
+    async confirmProcessCompanies() {
+        if (!this.selectedBatch) return;
+
+        this.isProcessingCompanies = true;
+        try {
+            const result = await submitCompanyBatch({ batchId: this.selectedBatch.id });
+
+            if (result.success) {
+                this.showSuccess(result.message);
+            } else {
+                this.showError(result.message);
+            }
+
+            this.closeCompanyProcessingModal();
+            // Refresh the data
+            await refreshApex(this.wiredBatchesResult);
+            await refreshApex(this.wiredMetricsResult);
+        } catch (error) {
+            this.showError('Error processing companies: ' + (error.body?.message || error.message));
+        } finally {
+            this.isProcessingCompanies = false;
         }
     }
 

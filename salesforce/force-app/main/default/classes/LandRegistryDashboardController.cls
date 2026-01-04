@@ -120,48 +120,143 @@ public with sharing class LandRegistryDashboardController {
     }
 
     /**
-     * @description Start processing a batch (triggers Azure function call)
+     * @description Start processing a batch - handles both individual and company records
+     * Individual records: Will be processed via HMLR OOV API (pending certificate)
+     * Company records: Processed via Azure Function email to HMLR Data Services
+     *
+     * IMPORTANT: Salesforce requires callouts to happen BEFORE any DML operations.
+     * This method is structured to make all HTTP callouts first, then perform DML.
+     *
      * @param batchId The batch to process
-     * @return Success message or error
+     * @return ProcessingResult with details of what was processed
      */
     @AuraEnabled
-    public static String startBatchProcessing(Id batchId) {
+    public static ProcessingResult startBatchProcessing(Id batchId) {
+        ProcessingResult result = new ProcessingResult();
+
         try {
             Land_Registry_Batch__c batch = [
-                SELECT Id, Status__c, Total_Records__c
+                SELECT Id, Name, Status__c, Total_Records__c
                 FROM Land_Registry_Batch__c
                 WHERE Id = :batchId
             ];
 
             if (batch.Status__c != 'Pending') {
-                return 'Batch is not in Pending status. Current status: ' + batch.Status__c;
+                result.success = false;
+                result.message = 'Batch is not in Pending status. Current status: ' + batch.Status__c;
+                return result;
             }
 
-            // Update batch status to Processing
-            batch.Status__c = 'Processing';
-            batch.Started_At__c = DateTime.now();
-            update batch;
-
-            // Update all check records to Submitted
-            List<Land_Registry_Check__c> checks = [
-                SELECT Id, Status__c
-                FROM Land_Registry_Check__c
-                WHERE Batch__c = :batchId AND Status__c = 'Pending'
+            // Count pending records by type
+            List<Land_Registry_Check__c> pendingIndividuals = [
+                SELECT Id FROM Land_Registry_Check__c
+                WHERE Batch__c = :batchId
+                  AND Landlord_Type__c = 'Individual'
+                  AND Status__c = 'Pending'
             ];
 
-            for (Land_Registry_Check__c check : checks) {
-                check.Status__c = 'Submitted to HMLR';
+            List<Land_Registry_Check__c> pendingCompanies = [
+                SELECT Id FROM Land_Registry_Check__c
+                WHERE Batch__c = :batchId
+                  AND Landlord_Type__c = 'Company'
+                  AND Status__c = 'Pending'
+            ];
+
+            result.individualCount = pendingIndividuals.size();
+            result.companyCount = pendingCompanies.size();
+
+            // ============================================================
+            // PHASE 1: CALLOUTS (must happen before any DML)
+            // ============================================================
+
+            // Process Company Records via Azure Function (HTTP callout)
+            if (!pendingCompanies.isEmpty()) {
+                HMLRCompanySubmission.SubmissionResult companyResult =
+                    HMLRCompanySubmission.submitCompanyBatch(batchId);
+
+                result.companySubmissionSuccess = companyResult.success;
+                result.companySubmissionMessage = companyResult.message;
+                result.companiesSubmitted = companyResult.recordsSubmitted != null ?
+                    companyResult.recordsSubmitted : 0;
+                result.emailMessageId = companyResult.emailMessageId;
+            } else {
+                result.companySubmissionSuccess = true;
+                result.companySubmissionMessage = 'No company records to process.';
+                result.companiesSubmitted = 0;
             }
-            update checks;
 
-            // TODO: Call Azure Function to start processing
-            // This will be implemented when Azure integration is ready
-            // For now, just update the status
+            // Process Individual Records via HMLR OOV API
+            // Currently blocked - awaiting HMLR certificate from Simon Devey
+            if (!pendingIndividuals.isEmpty()) {
+                result.individualSubmissionSuccess = false;
+                result.individualSubmissionMessage =
+                    'Individual landlord processing is not yet available. ' +
+                    'Awaiting HMLR API certificate. ' + pendingIndividuals.size() +
+                    ' individual records remain in Pending status.';
+                result.individualsSubmitted = 0;
+            } else {
+                result.individualSubmissionSuccess = true;
+                result.individualSubmissionMessage = 'No individual records to process.';
+                result.individualsSubmitted = 0;
+            }
 
-            return 'Processing started for ' + checks.size() + ' records';
+            // ============================================================
+            // PHASE 2: DML (after all callouts complete)
+            // ============================================================
+
+            // Determine overall success and update batch status
+            Boolean allProcessed = pendingIndividuals.isEmpty() && result.companySubmissionSuccess;
+
+            batch.Started_At__c = DateTime.now();
+
+            if (allProcessed) {
+                batch.Status__c = 'Complete';
+                batch.Completed_At__c = DateTime.now();
+                batch.Processed_Count__c = result.companiesSubmitted;
+            } else if (!result.companySubmissionSuccess) {
+                batch.Status__c = 'Failed';
+                batch.Error_Message__c = result.companySubmissionMessage;
+            } else {
+                // Partial processing - companies done, individuals pending
+                batch.Status__c = 'Partially Processed';
+                batch.Processed_Count__c = result.companiesSubmitted;
+            }
+            update batch;
+
+            // Build result message
+            result.success = result.companySubmissionSuccess;
+            result.message = buildResultMessage(result);
+
         } catch (Exception e) {
-            throw new AuraHandledException('Error starting processing: ' + e.getMessage());
+            result.success = false;
+            result.message = 'Error: ' + e.getMessage();
+            System.debug(LoggingLevel.ERROR, 'startBatchProcessing error: ' + e.getMessage() + '\n' + e.getStackTraceString());
         }
+
+        return result;
+    }
+
+    /**
+     * @description Build a user-friendly result message
+     */
+    private static String buildResultMessage(ProcessingResult result) {
+        List<String> messages = new List<String>();
+
+        if (result.companiesSubmitted > 0) {
+            messages.add(result.companiesSubmitted + ' company records submitted to HMLR via email.');
+        } else if (result.companyCount == 0) {
+            messages.add('No company records in batch.');
+        } else if (!result.companySubmissionSuccess) {
+            messages.add('Company submission failed: ' + result.companySubmissionMessage);
+        }
+
+        if (result.individualCount > 0) {
+            messages.add(result.individualCount + ' individual records pending (API not yet available).');
+        } else {
+            messages.add('No individual records in batch.');
+        }
+
+        return String.join(messages, ' ');
     }
 
     /**
@@ -211,7 +306,40 @@ public with sharing class LandRegistryDashboardController {
             if (status == 'Complete') return 'slds-theme_success';
             if (status == 'Processing') return 'slds-theme_info';
             if (status == 'Failed') return 'slds-theme_error';
+            if (status == 'Partially Processed') return 'slds-theme_warning';
             return 'slds-theme_shade';
+        }
+    }
+
+    /**
+     * @description Wrapper class for processing results
+     * Provides detailed feedback on both individual and company processing
+     */
+    public class ProcessingResult {
+        @AuraEnabled public Boolean success;
+        @AuraEnabled public String message;
+
+        // Record counts
+        @AuraEnabled public Integer individualCount;
+        @AuraEnabled public Integer companyCount;
+
+        // Company submission results
+        @AuraEnabled public Boolean companySubmissionSuccess;
+        @AuraEnabled public String companySubmissionMessage;
+        @AuraEnabled public Integer companiesSubmitted;
+        @AuraEnabled public String emailMessageId;
+
+        // Individual submission results
+        @AuraEnabled public Boolean individualSubmissionSuccess;
+        @AuraEnabled public String individualSubmissionMessage;
+        @AuraEnabled public Integer individualsSubmitted;
+
+        public ProcessingResult() {
+            this.success = false;
+            this.individualCount = 0;
+            this.companyCount = 0;
+            this.companiesSubmitted = 0;
+            this.individualsSubmitted = 0;
         }
     }
 }
