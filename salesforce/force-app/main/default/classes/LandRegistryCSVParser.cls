@@ -271,7 +271,7 @@ public with sharing class LandRegistryCSVParser {
         CSVRow row = new CSVRow();
 
         if (columnIndex.containsKey('landlordId') && columnIndex.get('landlordId') < values.size()) {
-            row.landlordId = values[columnIndex.get('landlordId')];
+            row.landlordId = extractLandlordId(values[columnIndex.get('landlordId')]);
         }
         if (columnIndex.containsKey('name') && columnIndex.get('name') < values.size()) {
             row.landlordName = values[columnIndex.get('name')];
@@ -493,6 +493,34 @@ public with sharing class LandRegistryCSVParser {
         // No building pattern found - return as single item
         result.add(address.trim());
         return result;
+    }
+
+    /**
+     * @description Extract the middle value from a compound landlord ID
+     * V+ exports landlord IDs in format "value1::value2::value3"
+     * We need only the middle value (value2) which is the actual landlord ID
+     * E.g., "8421::15589::53148" -> "15589"
+     */
+    @TestVisible
+    private static String extractLandlordId(String rawLandlordId) {
+        if (String.isBlank(rawLandlordId)) {
+            return '';
+        }
+
+        // Check if it contains the :: delimiter
+        if (rawLandlordId.contains('::')) {
+            List<String> parts = rawLandlordId.split('::');
+            // Return the middle value (index 1) if we have 3 parts
+            if (parts.size() >= 3) {
+                return parts[1].trim();
+            } else if (parts.size() == 2) {
+                // If only 2 parts, return the second one
+                return parts[1].trim();
+            }
+        }
+
+        // If no :: delimiter, return as-is (already a simple ID)
+        return rawLandlordId.trim();
     }
 
     /**

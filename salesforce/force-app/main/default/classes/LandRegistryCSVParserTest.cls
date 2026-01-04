@@ -618,4 +618,52 @@ private class LandRegistryCSVParserTest {
         System.assertEquals('London', lines[1], 'Second line should be town');
         System.assertEquals('Greater London', lines[2], 'Third line should be county');
     }
+
+    @isTest
+    static void testExtractLandlordId() {
+        // Test compound landlord ID with 3 parts - should extract middle value
+        System.assertEquals('15589', LandRegistryCSVParser.extractLandlordId('8421::15589::53148'));
+        System.assertEquals('59550', LandRegistryCSVParser.extractLandlordId('8421::59550::85974'));
+        System.assertEquals('12345', LandRegistryCSVParser.extractLandlordId('1::12345::999'));
+
+        // Test with 2 parts - should return second value
+        System.assertEquals('12345', LandRegistryCSVParser.extractLandlordId('8421::12345'));
+
+        // Test simple ID without :: delimiter - should return as-is
+        System.assertEquals('LL001', LandRegistryCSVParser.extractLandlordId('LL001'));
+        System.assertEquals('12345', LandRegistryCSVParser.extractLandlordId('12345'));
+
+        // Test with spaces - should trim
+        System.assertEquals('15589', LandRegistryCSVParser.extractLandlordId(' 8421::15589::53148 '));
+
+        // Test empty and null
+        System.assertEquals('', LandRegistryCSVParser.extractLandlordId(''));
+        System.assertEquals('', LandRegistryCSVParser.extractLandlordId(null));
+    }
+
+    @isTest
+    static void testLandlordIdExtractionInParsing() {
+        // Test that landlord ID is correctly extracted during CSV parsing
+        String csvContent = 'Landlord ID,Name,Tenancy First Line,Tenancy Town,Tenancy County,Tenancy Postcode\n' +
+                           '8421::15589::53148,John Smith,123 High Street,London,Greater London,SW1A 1AA\n' +
+                           '8421::59550::85974,Jane Doe,456 Oak Avenue,Manchester,Greater Manchester,M1 2AB';
+
+        Test.startTest();
+        LandRegistryCSVParser.ParseResult result = LandRegistryCSVParser.parseAndCreateRecords(csvContent);
+        Test.stopTest();
+
+        System.assertEquals(true, result.success, 'Parse should succeed');
+
+        List<Land_Registry_Check__c> checks = [
+            SELECT Landlord_ID__c, Landlord_Name__c
+            FROM Land_Registry_Check__c
+            WHERE Batch__c = :result.batchId
+            ORDER BY Landlord_Name__c
+        ];
+
+        System.assertEquals(2, checks.size(), 'Should have 2 records');
+        // Jane Doe comes first alphabetically
+        System.assertEquals('59550', checks[0].Landlord_ID__c, 'Jane Doe landlord ID should be 59550');
+        System.assertEquals('15589', checks[1].Landlord_ID__c, 'John Smith landlord ID should be 15589');
+    }
 }
