@@ -219,14 +219,18 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | `acs-connection-string` | Azure Communication Services connection | ✅ Stored |
 | `acs-sender-email` | `DoNotReply@...azurecomm.net` | ✅ Stored |
 | `hmlr-certificate` | HMLR mTLS certificate (PFX) | ⏳ Awaiting cert |
+| `hmlr-recipient-email` | Email recipient (dev: omar.lodhi@tdsgroup.uk) | ✅ Stored |
 
-**Azure Functions (Planned):**
+**Azure Functions:**
 | Function | Trigger | Description | Status |
 |----------|---------|-------------|--------|
-| `SendCompanyBatchToHMLR` | HTTP | Generates Excel, sends email via ACS | ⏳ Pending |
-| `ProcessIndividualLandlord` | HTTP | Calls OOV API, then Official Copy API if needed | ⏳ Pending |
+| `SendCompanyBatchToHMLR` | HTTP | Generates Excel, sends email via ACS | ✅ Deployed & Tested |
+| `ProcessIndividualLandlord` | HTTP | Calls OOV API, then Official Copy API if needed | ⏳ Blocked by cert |
 | `HandleHMLRResponse` | HTTP | Parses response Excel, updates SF records | ⏳ Pending |
 | `StoreDocument` | HTTP | Uploads PDF to Blob Storage, returns URL | ⏳ Pending |
+
+**Function Endpoints:**
+- `SendCompanyBatchToHMLR`: `https://func-landreg-api.azurewebsites.net/api/sendcompanybatchtohmlr`
 
 **Azure Blob Storage:**
 - Container: `title-deeds`
@@ -291,14 +295,14 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | 1.3 | Configure Azure-managed domain | ✅ `ab0150b0-c89e-4a65-829a-d151919c47d9.azurecomm.net` |
 | 1.4 | Store connection string in Key Vault | ✅ `acs-connection-string` |
 
-#### Phase 2: Azure Function - Generate & Send Excel
+#### Phase 2: Azure Function - Generate & Send Excel ✅ Complete
 | Step | Task | Status |
 |------|------|--------|
-| 2.1 | Create `SendCompanyBatchToHMLR` HTTP-triggered function | ⏳ Pending |
-| 2.2 | Accept JSON payload with company landlord records | ⏳ Pending |
-| 2.3 | Generate Excel file in HMLR format using ClosedXML | ⏳ Pending |
-| 2.4 | Send email via ACS with Excel attachment | ⏳ Pending |
-| 2.5 | Return success/failure response to Salesforce | ⏳ Pending |
+| 2.1 | Create `SendCompanyBatchToHMLR` HTTP-triggered function | ✅ Deployed |
+| 2.2 | Accept JSON payload with company landlord records | ✅ Implemented |
+| 2.3 | Generate Excel file in HMLR format using ClosedXML | ✅ Implemented |
+| 2.4 | Send email via ACS with Excel attachment | ✅ Tested |
+| 2.5 | Return success/failure response to Salesforce | ✅ Implemented |
 
 #### Phase 3: Salesforce Integration
 | Step | Task | Status |
@@ -511,6 +515,8 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 - ✅ Azure Function App `func-landreg-api` (.NET 8 Isolated)
 - ✅ Salesforce Connected App for Azure integration
 - ✅ Azure Communication Services `acs-landreg` with email domain configured
+- ✅ `SendCompanyBatchToHMLR` Azure Function deployed and tested
+- ✅ GitHub Actions CI/CD for Azure Functions (.NET 8 build and deploy)
 
 ---
 
