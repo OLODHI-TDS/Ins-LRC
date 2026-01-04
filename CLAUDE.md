@@ -6,7 +6,7 @@
 **Owner:** Omar Lodhi
 **Stakeholders:** Adrian Delaporte (Head of Compliance), Sanam Khan (Head of England & Wales), Karen Spriggs (Compliance Officer)
 **Start Date:** January 2026
-**Status:** Discovery & Architecture Complete, Implementation Pending
+**Status:** Infrastructure Complete, Awaiting HMLR Certificate
 
 ### Business Context
 
@@ -105,21 +105,24 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
                                                    │ Apex HTTP Callout
                                                    ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                              AZURE                                        │
+│                        AZURE (rg-landreg-poc)                            │
 │  ┌────────────────────┐  ┌────────────────────┐  ┌───────────────────┐  │
-│  │  Azure Functions   │  │  Azure Blob        │  │  Azure Logic Apps │  │
-│  │  (Durable)         │  │  Storage           │  │                   │  │
-│  │                    │  │                    │  │  - Send Email     │  │
-│  │  - Process         │  │  - Title Deed      │  │  - Monitor Inbox  │  │
-│  │    Individual      │  │    PDFs            │  │  - Notify Karen   │  │
-│  │  - Process Batch   │  │                    │  │                   │  │
+│  │  func-landreg-api  │  │  stlandregblob     │  │  Azure Comms Svc  │  │
+│  │  (Function App)    │  │  (Blob Storage)    │  │  (Email Service)  │  │
+│  │                    │  │                    │  │                   │  │
+│  │  - Process         │  │  - title-deeds     │  │  - Send Excel to  │  │
+│  │    Individual      │  │    container       │  │    HMLR           │  │
+│  │  - Send Company    │  │  - PDF storage     │  │                   │  │
+│  │    Batch           │  │                    │  │                   │  │
 │  └─────────┬──────────┘  └────────────────────┘  └───────────────────┘  │
 │            │                                                              │
-│  ┌─────────▼──────────┐                                                  │
-│  │  Azure Key Vault   │                                                  │
-│  │  - HMLR Certs      │                                                  │
-│  │  - SF Credentials  │                                                  │
-│  └────────────────────┘                                                  │
+│  ┌─────────▼──────────┐  ┌────────────────────┐                         │
+│  │    kv-landreg      │  │  M365 Service Acct │                         │
+│  │   (Key Vault)      │  │  (Email Receive)   │                         │
+│  │                    │  │                    │                         │
+│  │  - HMLR Certs      │  │  - Graph API       │                         │
+│  │  - SF Credentials  │  │  - RPMSG decrypt   │                         │
+│  └────────────────────┘  └────────────────────┘                         │
 └──────────────────────────────────────────────────────────────────────────┘
                                                    │
                               ┌────────────────────┴────────────────────┐
@@ -192,32 +195,42 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 
 ### Azure Components
 
-**Resource Naming Convention:**
-- Resource Group: `rg-landreg-poc` → `rg-landreg` (production)
-- Function App: `func-landreg-api`
-- Storage Account: `stlandregblob`
-- Key Vault: `kv-landreg`
-- Logic Apps: `logic-landreg-email`, `logic-landreg-inbox`
+**Resource Group:** `rg-landreg-poc` (UK South)
 
-**Azure Functions (Durable Functions for long-running orchestration):**
-| Function | Trigger | Description |
-|----------|---------|-------------|
-| ProcessIndividualLandlord | HTTP | Calls OOV API, then Official Copy API if needed |
-| ProcessCompanyBatch | HTTP | Generates Excel, triggers email send |
-| HandleHMLRResponse | Logic App | Parses response Excel, updates SF records |
-| StoreDocument | HTTP | Uploads PDF to Blob Storage, returns URL |
-| UpdateSalesforce | Activity | Bulk updates SF records |
+**Deployed Resources:**
+| Resource | Name | Type | Status |
+|----------|------|------|--------|
+| Function App | `func-landreg-api` | .NET 8 Isolated, Consumption Plan | ✅ Created |
+| Storage Account | `stlandregblob` | StorageV2, Standard_LRS | ✅ Created |
+| Blob Container | `title-deeds` | Private | ✅ Created |
+| Key Vault | `kv-landreg` | Standard | ✅ Created |
+| Application Insights | `func-landreg-api` | Monitoring | ✅ Created |
+| Communication Services | `acs-landreg` | Email sending | ⏳ Pending |
 
-**Azure Logic Apps:**
-| Flow | Purpose |
-|------|---------|
-| SendToHMLR | Sends email with Excel attachment to HMLR |
-| MonitorHMLRInbox | Watches shared mailbox for responses |
-| NotifyCompliance | Sends notification email to Karen |
+**Key Vault Secrets:**
+| Secret Name | Purpose | Status |
+|-------------|---------|--------|
+| `sf-consumer-key` | Salesforce OAuth Client ID | ✅ Stored |
+| `sf-consumer-secret` | Salesforce OAuth Client Secret | ✅ Stored |
+| `sf-login-url` | `https://test.salesforce.com` | ✅ Stored |
+| `sf-instance-url` | `https://thedisputeservice--omardev.sandbox.my.salesforce.com` | ✅ Stored |
+| `hmlr-certificate` | HMLR mTLS certificate (PFX) | ⏳ Awaiting cert |
+
+**Azure Functions (Planned):**
+| Function | Trigger | Description | Status |
+|----------|---------|-------------|--------|
+| `SendCompanyBatchToHMLR` | HTTP | Generates Excel, sends email via ACS | ⏳ Pending |
+| `ProcessIndividualLandlord` | HTTP | Calls OOV API, then Official Copy API if needed | ⏳ Pending |
+| `HandleHMLRResponse` | HTTP | Parses response Excel, updates SF records | ⏳ Pending |
+| `StoreDocument` | HTTP | Uploads PDF to Blob Storage, returns URL | ⏳ Pending |
 
 **Azure Blob Storage:**
 - Container: `title-deeds`
 - Structure: `/{batch-id}/{landlord-id}/{title-number}.pdf`
+
+**Email Infrastructure:**
+- **Sending:** Azure Communication Services (to be set up)
+- **Receiving:** M365 E1 License (~£5/month) for service account to receive encrypted RPMSG responses from HMLR
 
 ### Integration Patterns
 
@@ -245,6 +258,110 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 **Email to Data Services (Company Landlords)**
 - To: `data.services@mail.landregistry.gov.uk`
 - Format: Excel with columns: CustomerRef, Forename, Surname, Company Name Supplied, Input Address 1-5, Input Postcode
+
+---
+
+## Company Landlord Email Implementation
+
+### Overview Flow
+
+```
+┌────────────────┐     HTTP POST      ┌─────────────────────┐     Email      ┌──────────────┐
+│   Salesforce   │ ─────────────────► │   Azure Function    │ ─────────────► │    HMLR      │
+│                │   Company records  │                     │   Excel file   │ Data Services│
+│ Karen clicks   │   as JSON          │ • Generate Excel    │                │              │
+│ "Send to HMLR" │                    │ • Send via ACS      │                │              │
+└────────────────┘                    └─────────────────────┘                └──────────────┘
+```
+
+### Implementation Phases
+
+#### Phase 1: Azure Communication Services Setup
+| Step | Task | Status |
+|------|------|--------|
+| 1.1 | Create ACS resource in Azure | ⏳ Pending |
+| 1.2 | Set up Email Communication Service | ⏳ Pending |
+| 1.3 | Configure Azure-managed domain OR custom domain | ⏳ Pending |
+| 1.4 | Verify domain (if custom) | ⏳ Pending |
+
+#### Phase 2: Azure Function - Generate & Send Excel
+| Step | Task | Status |
+|------|------|--------|
+| 2.1 | Create `SendCompanyBatchToHMLR` HTTP-triggered function | ⏳ Pending |
+| 2.2 | Accept JSON payload with company landlord records | ⏳ Pending |
+| 2.3 | Generate Excel file in HMLR format using ClosedXML | ⏳ Pending |
+| 2.4 | Send email via ACS with Excel attachment | ⏳ Pending |
+| 2.5 | Return success/failure response to Salesforce | ⏳ Pending |
+
+#### Phase 3: Salesforce Integration
+| Step | Task | Status |
+|------|------|--------|
+| 3.1 | Create Apex class `HMLRCompanySubmission` | ⏳ Pending |
+| 3.2 | Query company records from batch | ⏳ Pending |
+| 3.3 | Call Azure Function with JSON payload | ⏳ Pending |
+| 3.4 | Update record statuses to "Submitted to HMLR" | ⏳ Pending |
+| 3.5 | Add "Send to HMLR" button to dashboard | ⏳ Pending |
+
+### HMLR Excel Format
+
+| Column | SF Source Field | Notes |
+|--------|-----------------|-------|
+| CustomerRef | `Landlord_ID__c` | Middle value extracted from V+ compound ID |
+| Forename | `Forename__c` | Blank for companies |
+| Surname | `Surname__c` | Blank for companies |
+| Company Name Supplied | `Company_Name__c` | Full company name |
+| Input Address 1 | `Property_Address__c` line 1 | First line of split address |
+| Input Address 2 | `Property_Address__c` line 2 | Second line |
+| Input Address 3 | `Property_Address__c` line 3 | Third line (usually town) |
+| Input Address 4 | `Property_Address__c` line 4 | Fourth line (usually county) |
+| Input Address 5 | `Property_Address__c` line 5 | Fifth line (if needed) |
+| Input Postcode | `Property_Postcode__c` | Formatted: "SW1A 1AA" |
+
+### JSON Payload (Salesforce → Azure Function)
+
+```json
+{
+  "batchId": "a0Ae000001ABC123",
+  "batchName": "BATCH-0042",
+  "records": [
+    {
+      "recordId": "a1Ae000001XYZ789",
+      "customerRef": "15589",
+      "companyName": "ABC Properties Ltd",
+      "forename": "",
+      "surname": "",
+      "address1": "45 Business Park",
+      "address2": "Manchester",
+      "address3": "Greater Manchester",
+      "address4": "",
+      "address5": "",
+      "postcode": "M1 2AB"
+    }
+  ]
+}
+```
+
+### Azure Function Response
+
+```json
+{
+  "success": true,
+  "batchId": "a0Ae000001ABC123",
+  "recordsProcessed": 15,
+  "emailMessageId": "acs-message-id-here",
+  "sentAt": "2026-01-04T12:00:00Z"
+}
+```
+
+### Technology Stack
+
+| Component | Technology |
+|-----------|------------|
+| Email Service | Azure Communication Services |
+| Function Runtime | .NET 8 Isolated |
+| Excel Generation | ClosedXML NuGet package |
+| Email SDK | Azure.Communication.Email |
+| SF Callout | Apex HttpRequest |
 
 ---
 
@@ -293,34 +410,65 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 - Contact: Simon Devey (simon.devey@landregistry.gov.uk)
 - Common Name: `The Dispute Service Ltd [BGTest]`
 
-### Shared Mailbox (for HMLR Response Monitoring)
-- To be created by IT
-- Will receive RPMSG encrypted responses from HMLR
-- Must be authorized by HMLR to receive protected emails
-- Accessed via Microsoft Graph API
+### Email Response Handling (M365 Service Account)
+
+**Approach:** Dedicated M365 E1 licensed service account (not IT-managed shared mailbox)
+
+| Aspect | Details |
+|--------|---------|
+| License Type | Microsoft 365 E1 (~£5/month) |
+| Purpose | Receive RPMSG encrypted responses from HMLR |
+| Account Name | TBD (e.g., `landreg-responses@tdsgroup.uk`) |
+| Authorization | Must be registered with HMLR to receive protected emails |
+| Access Method | Microsoft Graph API from Azure Function |
+
+**Why M365 E1 License:**
+- HMLR sends responses as encrypted RPMSG files (Microsoft Rights Management)
+- Only M365 licensed accounts can decrypt RPMSG in automated workflows
+- Azure Communication Services cannot receive/decrypt RPMSG
+- Keeps email handling within project scope (no IT dependency for mailbox creation)
 
 ---
 
 ## Environment Setup
 
 ### Salesforce
-- **Sandbox:** OmarDev (`omar.lodhi@tdsgroup.uk.omar`)
-- **Org ID:** 00DAe000007km5dMAA
+| Property | Value |
+|----------|-------|
+| Sandbox Name | OmarDev |
+| Username | `omar.lodhi@tdsgroup.uk.omar` |
+| Org ID | `00DAe000007km5dMAA` |
+| Instance URL | `https://thedisputeservice--omardev.sandbox.my.salesforce.com` |
+| API Version | 59.0 |
+
+**Connected App:**
+- Name: `Land Registry Azure Integration`
+- OAuth Scopes: `Api`, `RefreshToken`
+- Callback URL: `https://func-landreg-api.azurewebsites.net/oauth/callback`
 
 ### Azure
-- **Development:** Omar's personal Azure subscription (PoC)
-- **Production:** TDS Azure subscription (post-validation)
-- **Infrastructure as Code:** Bicep/ARM templates for easy migration
+| Property | Value |
+|----------|-------|
+| Subscription | Omar's personal Azure (PoC phase) |
+| Resource Group | `rg-landreg-poc` |
+| Location | UK South |
+
+**Production Migration:** After BGTest validation, migrate to TDS Azure subscription using ARM/Bicep templates
 
 ---
 
 ## Open Items & Dependencies
 
 ### Blockers
-| Item | Status | Dependency |
-|------|--------|------------|
-| HMLR BGTest Certificate | Waiting | Simon Devey response |
-| Shared Mailbox for HMLR responses | Not started | IT to create |
+| Item | Status | Dependency | Notes |
+|------|--------|------------|-------|
+| HMLR BGTest Certificate | Waiting | Simon Devey | CSR sent 02/01/2026, awaiting signed certificate |
+
+### To Procure
+| Item | Cost | Purpose | Status |
+|------|------|---------|--------|
+| M365 E1 License | ~£5/month | Service account for receiving encrypted HMLR responses | ⏳ Pending |
+| Azure Communication Services | Pay-as-you-go | Sending Excel files to HMLR | ⏳ Pending |
 
 ### Pre-Production Requirements
 | Item | Description |
@@ -328,6 +476,7 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | Record Matching Strategy | Define how V+ records map to SF Property__c to prevent duplicate checks |
 | Production HMLR Certificate | Request after BGTest validation |
 | TDS Azure Migration | Move from personal to TDS subscription |
+| Register Email with HMLR | Register M365 service account email to receive protected HMLR responses |
 
 ---
 
@@ -335,14 +484,25 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 
 | Phase | Tasks | Status |
 |-------|-------|--------|
-| Discovery | Requirements gathering, architecture design | Complete |
-| Certificate Setup | Generate CSR, obtain HMLR certificate | In Progress |
-| Salesforce Setup | Custom objects, UI components | Not Started |
-| Azure Setup | Resource group, Functions, Logic Apps | Not Started |
-| Integration | SF-Azure connectivity, HMLR API integration | Not Started |
-| Testing | End-to-end testing with BGTest | Not Started |
-| UAT | Testing with Karen Spriggs | Not Started |
-| Production | Go-live with production certificate | Not Started |
+| Discovery | Requirements gathering, architecture design | ✅ Complete |
+| Certificate Setup | Generate CSR, obtain HMLR certificate | ⏳ Awaiting HMLR |
+| Salesforce Setup | Custom objects, UI components, CSV parser | ✅ Complete |
+| Azure Infrastructure | Resource group, Storage, Key Vault, Function App | ✅ Complete |
+| Azure Functions | Company email, Individual API, Response handling | ⏳ Not Started |
+| SF-Azure Integration | Connected App, Apex callouts | ⏳ In Progress |
+| Testing | End-to-end testing with BGTest environment | ⏳ Blocked by cert |
+| UAT | Testing with Karen Spriggs | ⏳ Not Started |
+| Production | Go-live with production certificate | ⏳ Not Started |
+
+### Completed Items (January 2026)
+- ✅ CSV parser with UK address splitting and company detection
+- ✅ Landlord ID extraction (middle value from compound format)
+- ✅ Land Registry Check custom objects and UI components in Salesforce
+- ✅ Azure resource group `rg-landreg-poc` (UK South)
+- ✅ Azure Storage Account `stlandregblob` with `title-deeds` container
+- ✅ Azure Key Vault `kv-landreg` with SF credentials
+- ✅ Azure Function App `func-landreg-api` (.NET 8 Isolated)
+- ✅ Salesforce Connected App for Azure integration
 
 ---
 
