@@ -1,5 +1,5 @@
 # Azure Deployment Pipeline - Dev
-# Deploys Azure Functions and infrastructure to rg-landreg-poc
+# Deploys Azure Functions to func-landreg-api
 
 name: Azure Deploy to Dev
 
@@ -8,58 +8,36 @@ on:
     branches:
       - dev
     paths:
-      - 'azure/**'
+      - 'azure/functions/**'
   workflow_dispatch:  # Allow manual trigger
 
 env:
   AZURE_FUNCTIONAPP_NAME: func-landreg-api
   AZURE_FUNCTIONAPP_PACKAGE_PATH: azure/functions
-  PYTHON_VERSION: '3.11'
+  DOTNET_VERSION: '8.0.x'
 
 jobs:
-  deploy-infrastructure:
-    name: Deploy Infrastructure
+  build-and-deploy:
+    name: Build and Deploy Functions
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Azure Login
-        uses: azure/login@v2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Deploy Bicep template
-        uses: azure/arm-deploy@v2
-        with:
-          subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          resourceGroupName: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          template: azure/infrastructure/main.bicep
-          parameters: azure/infrastructure/parameters.dev.json
-          failOnStdErr: false
-        continue-on-error: true  # Skip if no infrastructure changes
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/LandRegFunctions.csproj
 
-  deploy-functions:
-    name: Deploy Azure Functions
-    runs-on: ubuntu-latest
-    needs: deploy-infrastructure
+      - name: Build
+        run: dotnet build ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/LandRegFunctions.csproj --configuration Release --no-restore
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: |
-          cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
-        continue-on-error: true  # Skip if no requirements.txt yet
+      - name: Publish
+        run: dotnet publish ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/LandRegFunctions.csproj --configuration Release --output ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/output
 
       - name: Azure Login
         uses: azure/login@v2
@@ -70,10 +48,7 @@ jobs:
         uses: azure/functions-action@v1
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-          package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          scm-do-build-during-deployment: true
-          enable-oryx-build: true
-        continue-on-error: true  # Skip if function app doesn't exist yet
+          package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/output
 
       - name: Azure Logout
         run: az logout

@@ -1,9 +1,0 @@
-# Azure Functions dependencies
-azure-functions
-azure-storage-blob
-azure-identity
-azure-keyvault-secrets
-requests
-zeep  # SOAP client for HMLR APIs
-openpyxl  # Excel generation for company landlord emails
-simple-salesforce  # Salesforce REST API client

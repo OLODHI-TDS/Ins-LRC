@@ -1,0 +1,18 @@
+# Build outputs
+bin/
+obj/
+
+# Local settings (contains secrets)
+local.settings.json
+
+# IDE
+.vs/
+.vscode/
+*.user
+
+# NuGet
+*.nupkg
+packages/
+
+# Azure Functions
+.azure/
