@@ -205,7 +205,9 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | Blob Container | `title-deeds` | Private | ✅ Created |
 | Key Vault | `kv-landreg` | Standard | ✅ Created |
 | Application Insights | `func-landreg-api` | Monitoring | ✅ Created |
-| Communication Services | `acs-landreg` | Email sending | ⏳ Pending |
+| Communication Services | `acs-landreg` | Email sending | ✅ Created |
+| Email Service | `email-landreg` | Email domain management | ✅ Created |
+| Email Domain | Azure-managed | `ab0150b0-c89e-4a65-829a-d151919c47d9.azurecomm.net` | ✅ Verified |
 
 **Key Vault Secrets:**
 | Secret Name | Purpose | Status |
@@ -214,6 +216,8 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | `sf-consumer-secret` | Salesforce OAuth Client Secret | ✅ Stored |
 | `sf-login-url` | `https://test.salesforce.com` | ✅ Stored |
 | `sf-instance-url` | `https://thedisputeservice--omardev.sandbox.my.salesforce.com` | ✅ Stored |
+| `acs-connection-string` | Azure Communication Services connection | ✅ Stored |
+| `acs-sender-email` | `DoNotReply@...azurecomm.net` | ✅ Stored |
 | `hmlr-certificate` | HMLR mTLS certificate (PFX) | ⏳ Awaiting cert |
 
 **Azure Functions (Planned):**
@@ -229,7 +233,10 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 - Structure: `/{batch-id}/{landlord-id}/{title-number}.pdf`
 
 **Email Infrastructure:**
-- **Sending:** Azure Communication Services (to be set up)
+- **Sending:** Azure Communication Services ✅ Set up
+  - Resource: `acs-landreg`
+  - Domain: `ab0150b0-c89e-4a65-829a-d151919c47d9.azurecomm.net`
+  - Sender: `DoNotReply@ab0150b0-c89e-4a65-829a-d151919c47d9.azurecomm.net`
 - **Receiving:** M365 E1 License (~£5/month) for service account to receive encrypted RPMSG responses from HMLR
 
 ### Integration Patterns
@@ -276,13 +283,13 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 
 ### Implementation Phases
 
-#### Phase 1: Azure Communication Services Setup
+#### Phase 1: Azure Communication Services Setup ✅ Complete
 | Step | Task | Status |
 |------|------|--------|
-| 1.1 | Create ACS resource in Azure | ⏳ Pending |
-| 1.2 | Set up Email Communication Service | ⏳ Pending |
-| 1.3 | Configure Azure-managed domain OR custom domain | ⏳ Pending |
-| 1.4 | Verify domain (if custom) | ⏳ Pending |
+| 1.1 | Create ACS resource in Azure | ✅ `acs-landreg` |
+| 1.2 | Set up Email Communication Service | ✅ `email-landreg` |
+| 1.3 | Configure Azure-managed domain | ✅ `ab0150b0-c89e-4a65-829a-d151919c47d9.azurecomm.net` |
+| 1.4 | Store connection string in Key Vault | ✅ `acs-connection-string` |
 
 #### Phase 2: Azure Function - Generate & Send Excel
 | Step | Task | Status |
@@ -468,7 +475,7 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | Item | Cost | Purpose | Status |
 |------|------|---------|--------|
 | M365 E1 License | ~£5/month | Service account for receiving encrypted HMLR responses | ⏳ Pending |
-| Azure Communication Services | Pay-as-you-go | Sending Excel files to HMLR | ⏳ Pending |
+| Azure Communication Services | Pay-as-you-go | Sending Excel files to HMLR | ✅ Set up |
 
 ### Pre-Production Requirements
 | Item | Description |
@@ -503,6 +510,7 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 - ✅ Azure Key Vault `kv-landreg` with SF credentials
 - ✅ Azure Function App `func-landreg-api` (.NET 8 Isolated)
 - ✅ Salesforce Connected App for Azure integration
+- ✅ Azure Communication Services `acs-landreg` with email domain configured
 
 ---
 
