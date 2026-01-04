@@ -30,8 +30,7 @@ public with sharing class HMLRCompanySubmission {
             List<Land_Registry_Check__c> companyRecords = [
                 SELECT Id, Name, Landlord_ID__c, Landlord_Name__c, Company_Name__c,
                        Forename__c, Surname__c, Property_Address__c, Property_Postcode__c,
-                       Address_Line_1__c, Address_Line_2__c, Address_Line_3__c,
-                       Address_Line_4__c, Address_Line_5__c, Status__c
+                       Status__c
                 FROM Land_Registry_Check__c
                 WHERE Batch__c = :batchId
                   AND Landlord_Type__c = 'Company'
@@ -107,22 +106,13 @@ public with sharing class HMLRCompanySubmission {
             record.forename = rec.Forename__c != null ? rec.Forename__c : '';
             record.surname = rec.Surname__c != null ? rec.Surname__c : '';
 
-            // Use split address fields if available, otherwise parse from full address
-            if (rec.Address_Line_1__c != null) {
-                record.address1 = rec.Address_Line_1__c;
-                record.address2 = rec.Address_Line_2__c != null ? rec.Address_Line_2__c : '';
-                record.address3 = rec.Address_Line_3__c != null ? rec.Address_Line_3__c : '';
-                record.address4 = rec.Address_Line_4__c != null ? rec.Address_Line_4__c : '';
-                record.address5 = rec.Address_Line_5__c != null ? rec.Address_Line_5__c : '';
-            } else {
-                // Parse from full address if split fields not populated
-                List<String> addressLines = parseAddress(rec.Property_Address__c);
-                record.address1 = addressLines.size() > 0 ? addressLines[0] : '';
-                record.address2 = addressLines.size() > 1 ? addressLines[1] : '';
-                record.address3 = addressLines.size() > 2 ? addressLines[2] : '';
-                record.address4 = addressLines.size() > 3 ? addressLines[3] : '';
-                record.address5 = addressLines.size() > 4 ? addressLines[4] : '';
-            }
+            // Parse address into lines for HMLR format
+            List<String> addressLines = parseAddress(rec.Property_Address__c);
+            record.address1 = addressLines.size() > 0 ? addressLines[0] : '';
+            record.address2 = addressLines.size() > 1 ? addressLines[1] : '';
+            record.address3 = addressLines.size() > 2 ? addressLines[2] : '';
+            record.address4 = addressLines.size() > 3 ? addressLines[3] : '';
+            record.address5 = addressLines.size() > 4 ? addressLines[4] : '';
 
             record.postcode = rec.Property_Postcode__c != null ? rec.Property_Postcode__c : '';
 
