@@ -50,14 +50,20 @@ public class SalesforceService
         var loginUrl = (await _secretClient.GetSecretAsync("sf-login-url")).Value.Value;
         _instanceUrl = (await _secretClient.GetSecretAsync("sf-instance-url")).Value.Value;
 
-        // OAuth2 client credentials flow (username-password flow for connected app)
+        // Get username and password for password flow
+        var username = (await _secretClient.GetSecretAsync("sf-username")).Value.Value;
+        var password = (await _secretClient.GetSecretAsync("sf-password")).Value.Value;
+
+        // OAuth2 username-password flow (Resource Owner Password Credentials)
         var tokenEndpoint = $"{loginUrl}/services/oauth2/token";
 
         var requestContent = new FormUrlEncodedContent(new Dictionary<string, string>
         {
-            { "grant_type", "client_credentials" },
+            { "grant_type", "password" },
             { "client_id", consumerKey },
-            { "client_secret", consumerSecret }
+            { "client_secret", consumerSecret },
+            { "username", username },
+            { "password", password } // Password should include security token if required
         });
 
         var response = await _httpClient.PostAsync(tokenEndpoint, requestContent);
