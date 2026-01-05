@@ -16,7 +16,9 @@ public class HMLRMailboxConfig
     public static readonly string[] HMLRSenderAddresses = new[]
     {
         "data.services@mail.landregistry.gov.uk",
-        "noreply@landregistry.gov.uk"
+        "noreply@landregistry.gov.uk",
+        // Test senders - remove before production
+        "omar.lodhi@tdsgroup.uk"
     };
 
     /// <summary>
