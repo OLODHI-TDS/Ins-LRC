@@ -4,9 +4,7 @@
 
 **Project Name:** Insured Land Registry Compliance Automation
 **Owner:** Omar Lodhi
-**Stakeholders:** Adrian Delaporte (Head of Compliance), Sanam Khan (Head of England & Wales), Karen Spriggs (Compliance Officer)
 **Start Date:** January 2026
-**Status:** Discovery & Architecture Complete, Implementation Pending
 
 ### Business Context
 
