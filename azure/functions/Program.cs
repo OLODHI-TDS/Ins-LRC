@@ -7,6 +7,7 @@ using Azure.Communication.Email;
 using Azure.Storage.Blobs;
 using Microsoft.Graph;
 using LandRegFunctions.Models;
+using LandRegFunctions.Services;
 
 var host = new HostBuilder()
     .ConfigureFunctionsWebApplication()
@@ -59,6 +60,10 @@ var host = new HostBuilder()
             var mailboxAddress = secrets.GetSecret("m365-mailbox-address").Value.Value;
             return new HMLRMailboxConfig { MailboxAddress = mailboxAddress };
         });
+
+        // Register HttpClient and Salesforce service
+        // AddHttpClient registers the service as transient by default
+        services.AddHttpClient<SalesforceService>();
     })
     .Build();
 

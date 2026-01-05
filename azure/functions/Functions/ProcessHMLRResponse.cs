@@ -7,6 +7,7 @@ using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using Azure.Storage.Blobs;
 using LandRegFunctions.Models;
+using LandRegFunctions.Services;
 
 namespace LandRegFunctions.Functions;
 
@@ -17,6 +18,7 @@ public class ProcessHMLRResponse
 {
     private readonly ILogger<ProcessHMLRResponse> _logger;
     private readonly BlobServiceClient _blobClient;
+    private readonly SalesforceService _salesforceService;
 
     // HMLR Excel column mappings (0-based index)
     private const int ColCustomerRef = 0;
@@ -33,12 +35,23 @@ public class ProcessHMLRResponse
     private const int ColTitleNumber = 11;
     private const int ColNameMatchResult = 12;
 
+    // Azure Function base URL for title deed viewer
+    private static readonly string TitleDeedFunctionBaseUrl =
+        Environment.GetEnvironmentVariable("TITLE_DEED_FUNCTION_URL")
+        ?? "https://func-landreg-api.azurewebsites.net/api/titledeeds";
+
+    // Function key for title deed access (stored in app settings)
+    private static readonly string? TitleDeedFunctionKey =
+        Environment.GetEnvironmentVariable("TITLE_DEED_FUNCTION_KEY");
+
     public ProcessHMLRResponse(
         ILogger<ProcessHMLRResponse> logger,
-        BlobServiceClient blobClient)
+        BlobServiceClient blobClient,
+        SalesforceService salesforceService)
     {
         _logger = logger;
         _blobClient = blobClient;
+        _salesforceService = salesforceService;
     }
 
     /// <summary>
@@ -325,6 +338,8 @@ public class ProcessHMLRResponse
         var update = new SalesforceRecordUpdate
         {
             // RecordId will be populated when we query Salesforce
+            CustomerRef = row.CustomerRef,
+            Postcode = row.Postcode,
             Status = row.GetSalesforceStatus(),
             MatchType = row.GetMatchType(),
             TitleNumber = row.TitleNumber,
@@ -335,7 +350,6 @@ public class ProcessHMLRResponse
         if (!string.IsNullOrEmpty(row.TitleNumber) &&
             titleDeeds.ContainsKey(row.TitleNumber))
         {
-            // Title deed path will be set after upload
             _logger.LogInformation(
                 "Title deed available for {CustomerRef}: {TitleNumber}",
                 row.CustomerRef, row.TitleNumber);
@@ -345,7 +359,7 @@ public class ProcessHMLRResponse
     }
 
     /// <summary>
-    /// Store title deeds in permanent blob storage
+    /// Store title deeds in permanent blob storage and generate URLs
     /// </summary>
     private async Task StoreTitleDeeds(
         Dictionary<string, byte[]> titleDeeds,
@@ -375,7 +389,18 @@ public class ProcessHMLRResponse
             await blobClient.UploadAsync(stream, overwrite: true);
 
             matchingUpdate.TitleDeedBlobPath = blobPath;
-            _logger.LogInformation("Stored title deed at: {Path}", blobPath);
+
+            // Generate URL for viewing the title deed via Azure Function
+            // Include function key if available for authentication
+            var titleDeedUrl = $"{TitleDeedFunctionBaseUrl}/{titleNumber}";
+            if (!string.IsNullOrEmpty(TitleDeedFunctionKey))
+            {
+                titleDeedUrl += $"?code={TitleDeedFunctionKey}";
+            }
+            matchingUpdate.TitleDeedUrl = titleDeedUrl;
+
+            _logger.LogInformation("Stored title deed at: {Path}, URL: {Url}",
+                blobPath, matchingUpdate.TitleDeedUrl);
         }
     }
 
@@ -384,22 +409,143 @@ public class ProcessHMLRResponse
     /// </summary>
     private async Task UpdateSalesforceRecords(List<SalesforceRecordUpdate> updates)
     {
-        // TODO: Implement Salesforce API call to update records
-        // For now, just log the updates that would be made
-        _logger.LogInformation("Would update {Count} Salesforce records:", updates.Count);
+        if (updates.Count == 0)
+        {
+            _logger.LogInformation("No records to update in Salesforce");
+            return;
+        }
+
+        _logger.LogInformation("Updating {Count} Salesforce records...", updates.Count);
+
+        // Build list of CustomerRefs to query
+        var customerRefs = updates
+            .Select(u => u.CustomerRef)
+            .Where(c => !string.IsNullOrEmpty(c))
+            .Distinct()
+            .ToList();
+
+        if (customerRefs.Count == 0)
+        {
+            _logger.LogWarning("No CustomerRefs found in updates");
+            return;
+        }
+
+        // Query Salesforce for matching records
+        // We match by Landlord_ID__c (CustomerRef) and Status = 'Submitted to HMLR'
+        var customerRefList = string.Join("','", customerRefs);
+        var soql = $@"SELECT Id, Name, Landlord_ID__c, Property_Postcode__c, Status__c
+                      FROM Land_Registry_Check__c
+                      WHERE Landlord_ID__c IN ('{customerRefList}')
+                      AND Status__c = 'Submitted to HMLR'";
+
+        _logger.LogInformation("Querying Salesforce: {Query}", soql);
+
+        List<LandRegistryCheckRecord> sfRecords;
+        try
+        {
+            sfRecords = await _salesforceService.QueryAsync<LandRegistryCheckRecord>(soql);
+            _logger.LogInformation("Found {Count} matching records in Salesforce", sfRecords.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to query Salesforce records");
+            throw;
+        }
+
+        // Match updates to Salesforce records and prepare bulk update
+        var bulkUpdates = new List<(string RecordId, object UpdateData)>();
 
         foreach (var update in updates)
         {
+            // Find matching Salesforce record by CustomerRef
+            // If multiple matches, also try to match by postcode
+            var matchingRecords = sfRecords
+                .Where(r => r.LandlordId == update.CustomerRef)
+                .ToList();
+
+            LandRegistryCheckRecord? matchedRecord = null;
+
+            if (matchingRecords.Count == 1)
+            {
+                matchedRecord = matchingRecords[0];
+            }
+            else if (matchingRecords.Count > 1)
+            {
+                // Multiple matches - try to narrow down by postcode
+                var postcodeMatch = matchingRecords
+                    .FirstOrDefault(r => NormalizePostcode(r.PropertyPostcode) == NormalizePostcode(update.Postcode));
+
+                matchedRecord = postcodeMatch ?? matchingRecords[0];
+
+                if (postcodeMatch == null)
+                {
+                    _logger.LogWarning(
+                        "Multiple records found for CustomerRef {Ref}, using first match. " +
+                        "Postcode matching failed (Update: {UpdatePostcode})",
+                        update.CustomerRef, update.Postcode);
+                }
+            }
+
+            if (matchedRecord == null)
+            {
+                _logger.LogWarning("No Salesforce record found for CustomerRef: {Ref}", update.CustomerRef);
+                continue;
+            }
+
+            // Prepare update payload
+            var updatePayload = new LandRegistryCheckUpdate
+            {
+                Status = update.Status,
+                MatchType = update.MatchType,
+                TitleNumber = update.TitleNumber,
+                TitleDeedUrl = update.TitleDeedUrl,
+                HMLRResponseDate = update.HMLRResponseDate
+            };
+
+            bulkUpdates.Add((matchedRecord.Id!, updatePayload));
+
             _logger.LogInformation(
-                "  - Status: {Status}, MatchType: {MatchType}, TitleNumber: {TitleNumber}",
-                update.Status, update.MatchType, update.TitleNumber);
+                "Matched CustomerRef {Ref} to SF record {RecordId}: Status={Status}, TitleNumber={TitleNumber}",
+                update.CustomerRef, matchedRecord.Id, update.Status, update.TitleNumber);
+
+            // Remove from list to avoid duplicate matching
+            sfRecords.Remove(matchedRecord);
         }
 
-        // The actual Salesforce integration will query records by:
-        // - Landlord_ID__c (CustomerRef from Excel)
-        // - Property_Postcode__c (from Excel)
-        // - Batch__c (most recent batch with status "Submitted to HMLR")
-        await Task.CompletedTask;
+        // Perform bulk update
+        if (bulkUpdates.Count > 0)
+        {
+            try
+            {
+                var successCount = await _salesforceService.BulkUpdateRecordsAsync(
+                    "Land_Registry_Check__c",
+                    bulkUpdates);
+
+                _logger.LogInformation(
+                    "Successfully updated {Success}/{Total} Salesforce records",
+                    successCount, bulkUpdates.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update Salesforce records");
+                throw;
+            }
+        }
+        else
+        {
+            _logger.LogWarning("No records matched for Salesforce update");
+        }
+    }
+
+    /// <summary>
+    /// Normalize postcode for comparison (remove spaces, uppercase)
+    /// </summary>
+    private static string NormalizePostcode(string? postcode)
+    {
+        if (string.IsNullOrEmpty(postcode))
+            return string.Empty;
+
+        return postcode.Replace(" ", "").ToUpperInvariant();
     }
 
     /// <summary>

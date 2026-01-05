@@ -101,10 +101,48 @@ public class HMLRProcessingResult
 /// </summary>
 public class SalesforceRecordUpdate
 {
+    /// <summary>
+    /// Salesforce record ID (populated after query)
+    /// </summary>
     public string RecordId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// CustomerRef from HMLR response (used to match Salesforce record)
+    /// </summary>
+    public string CustomerRef { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Postcode from HMLR response (used to match Salesforce record)
+    /// </summary>
+    public string Postcode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Status to set: Matched, Under Review, No Match
+    /// </summary>
     public string Status { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Match type: Property+Person Match, Property Only, No Property Match
+    /// </summary>
     public string MatchType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Title number from HMLR
+    /// </summary>
     public string? TitleNumber { get; set; }
+
+    /// <summary>
+    /// Blob storage path for title deed PDF
+    /// </summary>
     public string? TitleDeedBlobPath { get; set; }
+
+    /// <summary>
+    /// URL to view title deed PDF (set after processing)
+    /// </summary>
+    public string? TitleDeedUrl { get; set; }
+
+    /// <summary>
+    /// When HMLR response was received
+    /// </summary>
     public DateTime HMLRResponseDate { get; set; }
 }
