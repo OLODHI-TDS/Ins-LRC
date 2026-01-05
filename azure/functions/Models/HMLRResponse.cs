@@ -75,7 +75,7 @@ public class HMLRResponseRow
         if (!IsAddressMatch)
             return "No Property Match";
 
-        return IsNameMatch ? "Property+Person Match" : "Property Only";
+        return IsNameMatch ? "Property and Person Match" : "Property Only";
     }
 }
 
