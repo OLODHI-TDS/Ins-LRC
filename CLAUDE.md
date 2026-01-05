@@ -6,7 +6,7 @@
 **Owner:** Omar Lodhi
 **Stakeholders:** Adrian Delaporte (Head of Compliance), Sanam Khan (Head of England & Wales), Karen Spriggs (Compliance Officer)
 **Start Date:** January 2026
-**Status:** Infrastructure Complete, Awaiting HMLR Certificate
+**Status:** Company Flow Complete, Individual Flow Awaiting HMLR Certificate
 
 ### Business Context
 
@@ -170,7 +170,7 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | Property_Address__c | Text Area | Full property address |
 | Property_Postcode__c | Text | Postcode |
 | Status__c | Picklist | Pending, Submitted, Matched, No Match, Under Review, Letter Sent, Closed |
-| Match_Type__c | Picklist | Property+Person Match, Property Only, No Property Match |
+| Match_Type__c | Picklist | Property and Person Match, Property Only, No Property Match |
 | Title_Number__c | Text | Returned from HMLR |
 | Title_Deed_URL__c | URL | Link to PDF in Azure Blob |
 | HMLR_Response_Date__c | DateTime | When response received |
@@ -225,9 +225,14 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | Function | Trigger | Description | Status |
 |----------|---------|-------------|--------|
 | `SendCompanyBatchToHMLR` | HTTP | Generates Excel, sends email via ACS | ✅ Deployed & Tested |
+| `CheckHMLRInbox` | Timer | Timer-triggered (15 min) inbox polling | ✅ Deployed & Tested |
+| `CheckHMLRInboxManual` | HTTP | Manual inbox check for testing | ✅ Deployed & Tested |
+| `ProcessHMLRResponse` | HTTP | Parses response Excel, updates SF records | ✅ Deployed & Tested |
+| `ProcessHMLRResponseFromBlob` | Blob | Blob-triggered response processing | ✅ Deployed |
+| `NotifyComplianceTeam` | HTTP | Send notification emails | ✅ Deployed & Tested |
+| `UploadDocument` | HTTP | Upload PDFs to blob storage | ✅ Deployed |
+| `GetDocumentUrl` | HTTP | Generate SAS URLs for PDFs | ✅ Deployed |
 | `ProcessIndividualLandlord` | HTTP | Calls OOV API, then Official Copy API if needed | ⏳ Blocked by cert |
-| `HandleHMLRResponse` | HTTP | Parses response Excel, updates SF records | ⏳ Pending |
-| `StoreDocument` | HTTP | Uploads PDF to Blob Storage, returns URL | ⏳ Pending |
 
 **Function Endpoints:**
 - `SendCompanyBatchToHMLR`: `https://func-landreg-api.azurewebsites.net/api/sendcompanybatchtohmlr`
@@ -505,8 +510,8 @@ After deployment, set up `Land_Registry_Settings__c` custom setting with:
 | Certificate Setup | Generate CSR, obtain HMLR certificate | ⏳ Awaiting HMLR |
 | Salesforce Setup | Custom objects, UI components, CSV parser | ✅ Complete |
 | Azure Infrastructure | Resource group, Storage, Key Vault, Function App | ✅ Complete |
-| Azure Functions | Company email, Individual API, Response handling | ⏳ Not Started |
-| SF-Azure Integration | Connected App, Apex callouts | ⏳ In Progress |
+| Azure Functions | Company email, Individual API, Response handling | ✅ Complete (Company flow), ⏳ Blocked (Individual) |
+| SF-Azure Integration | Connected App, Apex callouts | ✅ Complete |
 | Testing | End-to-end testing with BGTest environment | ⏳ Blocked by cert |
 | UAT | Testing with Karen Spriggs | ⏳ Not Started |
 | Production | Go-live with production certificate | ⏳ Not Started |
@@ -519,13 +524,20 @@ After deployment, set up `Land_Registry_Settings__c` custom setting with:
 - ✅ Azure Storage Account `stlandregblob` with `title-deeds` container
 - ✅ Azure Key Vault `kv-landreg` with SF credentials
 - ✅ Azure Function App `func-landreg-api` (.NET 8 Isolated)
-- ✅ Salesforce Connected App for Azure integration
+- ✅ Salesforce Connected App for Azure integration (password OAuth flow)
 - ✅ Azure Communication Services `acs-landreg` with email domain configured
 - ✅ `SendCompanyBatchToHMLR` Azure Function deployed and tested
 - ✅ GitHub Actions CI/CD for Azure Functions (.NET 8 build and deploy)
 - ✅ `HMLRCompanySubmission` Apex class for Salesforce → Azure integration
 - ✅ `Land_Registry_Settings__c` custom setting for Azure configuration
 - ✅ Remote Site Setting for Azure Functions endpoint
+- ✅ M365 service account `landreg-responses@TDSLR.onmicrosoft.com` for HMLR response monitoring
+- ✅ `CheckHMLRInbox` and `CheckHMLRInboxManual` Azure Functions for inbox polling
+- ✅ `ProcessHMLRResponse` Azure Function for parsing HMLR Excel and updating Salesforce
+- ✅ RPMSG decryption and Excel/ZIP extraction from encrypted HMLR emails
+- ✅ PDF title deed storage in Azure Blob with SAS URL generation
+- ✅ End-to-end company landlord flow tested (12 records: 7 Matched, 3 Under Review, 2 No Match)
+- ✅ Salesforce record updates from Azure Functions (Status, Match_Type, Title_Number, Title_Deed_URL)
 
 ---
 

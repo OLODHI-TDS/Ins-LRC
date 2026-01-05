@@ -17,8 +17,8 @@
 | Phase 1: Salesforce Foundation | ✅ Complete | 100% |
 | Phase 2: Salesforce UI Components | 🟡 In Progress | ~60% |
 | Phase 3: Azure Infrastructure | ✅ Complete | 100% |
-| Phase 4: Azure Functions Development | 🟡 In Progress | ~50% (blocked on HMLR cert) |
-| Phase 5: Integration & Testing | 🟡 In Progress | ~30% |
+| Phase 4: Azure Functions Development | 🟡 In Progress | ~75% (Individual landlord blocked on HMLR cert) |
+| Phase 5: Integration & Testing | 🟡 In Progress | ~70% (Company flow fully tested) |
 | Phase 6: UAT & Documentation | ⬜ Not Started | 0% |
 
 ---
@@ -101,7 +101,7 @@
 
 **Objective:** Build serverless functions for processing logic
 
-**Status:** In Progress (~50% complete - HMLR API functions blocked on certificate)
+**Status:** In Progress (~75% complete - HMLR API functions blocked on certificate)
 
 ### Tasks
 
@@ -116,7 +116,7 @@
 | AZ-4.7 | Salesforce API Client | OAuth token management, REST API calls, bulk updates | 1 day | ✅ Done (Apex `HMLRCompanySubmission`) |
 | AZ-4.8 | Progress Update Activity | Update Batch progress in Salesforce (every 10 records) | 0.5 days | ⬜ Not Started |
 | AZ-4.9 | PDF Storage Activity | Upload PDF to Blob Storage, generate SAS URL | 0.5 days | ✅ Done (`DocumentStorage` functions) |
-| AZ-4.10 | HMLR Response Parser | Parse returned Excel, extract match results | 1 day | ✅ Done (`ProcessHMLRResponse`) |
+| AZ-4.10 | HMLR Response Parser | Parse returned Excel, extract match results | 1 day | ✅ Done & Tested (`ProcessHMLRResponse`) |
 | AZ-4.11 | Error Handling & Retry Logic | Robust error handling, dead-letter queue, alerts | 1 day | 🟡 Partial |
 
 **Phase 4 Total: 12 days** (4.5 days complete, 2.5 days in progress, 5 days blocked)
@@ -128,7 +128,7 @@
 | `SendCompanyBatchToHMLR` | Generate Excel, send to HMLR via email | ✅ Deployed & Tested |
 | `CheckHMLRInbox` | Timer-triggered (15 min) inbox polling | ✅ Deployed & Tested |
 | `CheckHMLRInboxManual` | Manual inbox check for testing | ✅ Deployed & Tested |
-| `ProcessHMLRResponse` | Parse Excel, extract PDFs, update Salesforce | ✅ Deployed |
+| `ProcessHMLRResponse` | Parse Excel, extract PDFs, update Salesforce | ✅ Deployed & Tested |
 | `ProcessHMLRResponseFromBlob` | Blob-triggered response processing | ✅ Deployed |
 | `NotifyComplianceTeam` | Send notification emails | ✅ Deployed & Tested |
 | `NotifyComplianceTeamFromBlob` | Blob-triggered notifications | ✅ Deployed |
@@ -143,22 +143,22 @@
 
 **Objective:** Connect all components and validate end-to-end flow
 
-**Status:** In Progress (~30% complete)
+**Status:** In Progress (~70% complete)
 
 ### Tasks
 
 | ID | Task | Description | Estimate | Status |
 |----|------|-------------|----------|--------|
 | INT-5.1 | SF to Azure Integration | Apex callouts to Azure Functions, authentication | 1 day | ✅ Done |
-| INT-5.2 | Azure to SF Integration | Test Connected App, bulk record updates | 0.5 days | 🟡 Partial (company flow only) |
+| INT-5.2 | Azure to SF Integration | Test Connected App, bulk record updates | 0.5 days | ✅ Done (company flow tested) |
 | INT-5.3 | HMLR BGTest Validation | Test OOV and Official Copy APIs with real certificate | 1 day | 🔒 Blocked (awaiting cert) |
 | INT-5.4 | Email Flow Testing | Test automated email send and inbox monitoring | 1 day | ✅ Done |
 | INT-5.5 | End-to-End Test (Individuals) | Full flow: Upload → OOV → Official Copy → SF Update | 1 day | 🔒 Blocked (awaiting cert) |
-| INT-5.6 | End-to-End Test (Companies) | Full flow: Upload → Excel → Email → Response → SF Update | 1 day | 🟡 Partial (outbound works, response pending real data) |
+| INT-5.6 | End-to-End Test (Companies) | Full flow: Upload → Excel → Email → Response → SF Update | 1 day | ✅ Done (12 records processed successfully) |
 | INT-5.7 | Performance Testing | Test with realistic batch sizes (~250 records) | 0.5 days | ⬜ Not Started |
 | INT-5.8 | Error Scenario Testing | Network failures, API errors, invalid data | 0.5 days | ⬜ Not Started |
 
-**Phase 5 Total: 6.5 days** (2 days complete, 1.5 days partial, 3 days blocked)
+**Phase 5 Total: 6.5 days** (3.5 days complete, 3 days blocked)
 
 ---
 
