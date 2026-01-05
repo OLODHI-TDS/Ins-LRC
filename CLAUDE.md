@@ -349,11 +349,6 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | Name | Role | Email |
 |------|------|-------|
 | Omar Lodhi | Project Lead | omar.lodhi@tdsgroup.uk |
-| Adrian Delaporte | Head of Compliance | adrian.delaporte@tdsgroup.uk |
-| Karen Spriggs | Compliance Officer | karen.spriggs@tdsgroup.uk |
-| Sanam Khan | Head of England & Wales | |
-| Simon Devey | HMLR Account Manager | simon.devey@landregistry.gov.uk |
-| Daniel/Owen | Liit (MSP) - Infrastructure | |
 
 ---
 
