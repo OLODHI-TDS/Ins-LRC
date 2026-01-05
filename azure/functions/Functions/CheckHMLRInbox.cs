@@ -1,10 +1,11 @@
+using System.Net;
 using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
 using LandRegFunctions.Models;
 
 namespace LandRegFunctions.Functions;
@@ -73,8 +74,8 @@ public class CheckHMLRInbox
     /// HTTP trigger for manual inbox check (useful for testing)
     /// </summary>
     [Function("CheckHMLRInboxManual")]
-    public async Task<Microsoft.Azure.Functions.Worker.Http.HttpResponseData> RunManual(
-        [HttpTrigger(AuthorizationLevel.Function, "post")] Microsoft.Azure.Functions.Worker.Http.HttpRequestData req)
+    public async Task<HttpResponseData> RunManual(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req)
     {
         _logger.LogInformation("Manual inbox check triggered");
 
@@ -93,7 +94,7 @@ public class CheckHMLRInbox
             // Check for paired emails
             var pairs = await CheckForPairedEmails();
 
-            var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+            var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new
             {
                 Success = true,
@@ -106,7 +107,7 @@ public class CheckHMLRInbox
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in manual inbox check");
-            var response = req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
+            var response = req.CreateResponse(HttpStatusCode.InternalServerError);
             await response.WriteAsJsonAsync(new { Success = false, Error = ex.Message });
             return response;
         }

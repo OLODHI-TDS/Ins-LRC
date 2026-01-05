@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Net;
 using System.Text.Json;
 using ClosedXML.Excel;
 using Microsoft.Azure.Functions.Worker;
@@ -58,7 +59,7 @@ public class ProcessHMLRResponse
             if (pair == null)
             {
                 _logger.LogError("Invalid request body - could not deserialize pair");
-                var badResponse = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+                var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
                 await badResponse.WriteAsJsonAsync(new { Error = "Invalid request body" });
                 return badResponse;
             }
@@ -69,14 +70,14 @@ public class ProcessHMLRResponse
             // Clean up pending emails
             await CleanupPendingEmails(pair);
 
-            var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+            var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(result);
             return response;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing HMLR response");
-            var errorResponse = req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
+            var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
             await errorResponse.WriteAsJsonAsync(new { Error = ex.Message });
             return errorResponse;
         }

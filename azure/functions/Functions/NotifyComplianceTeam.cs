@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
@@ -56,21 +57,21 @@ public class NotifyComplianceTeam
 
             if (result == null)
             {
-                var badResponse = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+                var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
                 await badResponse.WriteAsJsonAsync(new { Error = "Invalid request body" });
                 return badResponse;
             }
 
             await SendNotificationEmail(result);
 
-            var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+            var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new { Success = true, Message = "Notification sent" });
             return response;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error sending notification");
-            var errorResponse = req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
+            var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
             await errorResponse.WriteAsJsonAsync(new { Error = ex.Message });
             return errorResponse;
         }
@@ -144,10 +145,9 @@ public class NotifyComplianceTeam
 
         _logger.LogInformation("Sending notification email to {Recipient}", PrimaryRecipient);
 
-        var operation = await _emailClient.SendAsync(Azure.WaitUntil.Completed, emailMessage);
+        var sendOperation = await _emailClient.SendAsync(Azure.WaitUntil.Completed, emailMessage);
 
-        _logger.LogInformation("Notification email sent. Status: {Status}, MessageId: {Id}",
-            operation.Value.Status, operation.Value.Id);
+        _logger.LogInformation("Notification email sent. MessageId: {Id}", sendOperation.Id);
     }
 
     /// <summary>
