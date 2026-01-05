@@ -53,11 +53,11 @@ var host = new HostBuilder()
         });
 
         // Register mailbox address for inbox monitoring
-        services.AddSingleton<MailboxSettings>(sp =>
+        services.AddSingleton<HMLRMailboxConfig>(sp =>
         {
             var secrets = sp.GetRequiredService<SecretClient>();
             var mailboxAddress = secrets.GetSecret("m365-mailbox-address").Value.Value;
-            return new MailboxSettings { MailboxAddress = mailboxAddress };
+            return new HMLRMailboxConfig { MailboxAddress = mailboxAddress };
         });
     })
     .Build();

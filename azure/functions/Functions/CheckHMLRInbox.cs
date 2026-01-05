@@ -18,18 +18,18 @@ public class CheckHMLRInbox
     private readonly ILogger<CheckHMLRInbox> _logger;
     private readonly GraphServiceClient _graphClient;
     private readonly BlobServiceClient _blobClient;
-    private readonly MailboxSettings _mailboxSettings;
+    private readonly HMLRMailboxConfig _mailboxConfig;
 
     public CheckHMLRInbox(
         ILogger<CheckHMLRInbox> logger,
         GraphServiceClient graphClient,
         BlobServiceClient blobClient,
-        MailboxSettings mailboxSettings)
+        HMLRMailboxConfig mailboxConfig)
     {
         _logger = logger;
         _graphClient = graphClient;
         _blobClient = blobClient;
-        _mailboxSettings = mailboxSettings;
+        _mailboxConfig = mailboxConfig;
     }
 
     /// <summary>
@@ -123,14 +123,14 @@ public class CheckHMLRInbox
         {
             // Build filter for unread emails from HMLR
             var senderFilters = string.Join(" or ",
-                MailboxSettings.HMLRSenderAddresses.Select(addr => $"from/emailAddress/address eq '{addr}'"));
+                HMLRMailboxConfig.HMLRSenderAddresses.Select(addr => $"from/emailAddress/address eq '{addr}'"));
             var filter = $"isRead eq false and ({senderFilters})";
 
             _logger.LogInformation("Querying mailbox {Mailbox} with filter: {Filter}",
-                _mailboxSettings.MailboxAddress, filter);
+                _mailboxConfig.MailboxAddress, filter);
 
             // Query the mailbox
-            var messages = await _graphClient.Users[_mailboxSettings.MailboxAddress]
+            var messages = await _graphClient.Users[_mailboxConfig.MailboxAddress]
                 .Messages
                 .GetAsync(config =>
                 {
@@ -244,7 +244,7 @@ public class CheckHMLRInbox
     /// </summary>
     private async Task<string> StoreAttachmentTemporarily(string emailId, string fileName, byte[] content)
     {
-        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var containerClient = _blobClient.GetBlobContainerClient(HMLRMailboxConfig.PendingEmailsContainer);
         await containerClient.CreateIfNotExistsAsync();
 
         var blobPath = $"{emailId}/{fileName}";
@@ -262,7 +262,7 @@ public class CheckHMLRInbox
     /// </summary>
     private async Task SavePendingEmail(PendingHMLREmail pendingEmail)
     {
-        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var containerClient = _blobClient.GetBlobContainerClient(HMLRMailboxConfig.PendingEmailsContainer);
         await containerClient.CreateIfNotExistsAsync();
 
         var metadataPath = $"{pendingEmail.EmailId}/metadata.json";
@@ -280,7 +280,7 @@ public class CheckHMLRInbox
     {
         try
         {
-            await _graphClient.Users[_mailboxSettings.MailboxAddress]
+            await _graphClient.Users[_mailboxConfig.MailboxAddress]
                 .Messages[emailId]
                 .PatchAsync(new Message { IsRead = true });
 
@@ -301,7 +301,7 @@ public class CheckHMLRInbox
 
         try
         {
-            var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+            var containerClient = _blobClient.GetBlobContainerClient(HMLRMailboxConfig.PendingEmailsContainer);
 
             if (!await containerClient.ExistsAsync())
             {
@@ -336,7 +336,7 @@ public class CheckHMLRInbox
             {
                 // Find a matching ZIP email within the time window
                 var matchingZip = zipEmails.FirstOrDefault(z =>
-                    Math.Abs((z.ReceivedDateTime - excelEmail.ReceivedDateTime).TotalHours) <= MailboxSettings.PairingWindowHours);
+                    Math.Abs((z.ReceivedDateTime - excelEmail.ReceivedDateTime).TotalHours) <= HMLRMailboxConfig.PairingWindowHours);
 
                 if (matchingZip != null)
                 {
@@ -379,7 +379,7 @@ public class CheckHMLRInbox
             pair.ExcelEmail.EmailId, pair.ZipEmail.EmailId);
 
         // Store the pair info for the processor to pick up
-        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var containerClient = _blobClient.GetBlobContainerClient(HMLRMailboxConfig.PendingEmailsContainer);
         var pairPath = $"pairs/{pair.ExcelEmail.EmailId}_{pair.ZipEmail.EmailId}.json";
         var blobClient = containerClient.GetBlobClient(pairPath);
 

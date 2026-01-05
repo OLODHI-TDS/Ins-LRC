@@ -1,9 +1,9 @@
 namespace LandRegFunctions.Models;
 
 /// <summary>
-/// Configuration for mailbox monitoring
+/// Configuration for HMLR mailbox monitoring
 /// </summary>
-public class MailboxSettings
+public class HMLRMailboxConfig
 {
     /// <summary>
     /// The email address to monitor for HMLR responses

@@ -1,0 +1,1268 @@
+olevba 0.60.2 on Python 3.13.3 - http://decalage.info/python/oletools
+===============================================================================
+FILE: C:/Users/Omar.Lodhi/AppData/Local/Temp/lr_checker.xlsm
+Type: OpenXML
+WARNING  For now, VBA stomping cannot be detected for files in memory
+-------------------------------------------------------------------------------
+VBA MACRO ThisWorkbook.cls 
+in file: xl/vbaProject.bin - OLE stream: 'VBA/ThisWorkbook'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+Private Sub Workbook_Open()
+    ProgressForm.Show
+End Sub
+-------------------------------------------------------------------------------
+VBA MACRO Sheet1.cls 
+in file: xl/vbaProject.bin - OLE stream: 'VBA/Sheet1'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+(empty macro)
+-------------------------------------------------------------------------------
+VBA MACRO LRCheck.bas 
+in file: xl/vbaProject.bin - OLE stream: 'VBA/LRCheck'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+Sub CopyLandlordComplianceCSVtoNewWorkbook()
+    Dim wb As Workbook, targetWB As Workbook, csvWorkbook As Workbook
+    Dim ws As Worksheet, filterSheet As Worksheet
+    Dim found As Boolean
+    Dim targetPrefix As String
+    Dim totalSteps As Long, currentStep As Long
+    
+    ' Optimize Excel settings for performance
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    
+    On Error GoTo ErrorHandler
+    
+    totalSteps = 5
+    currentStep = 0
+    
+    ' Reference the form
+    With ProgressForm
+        .UpdateProgress 0, totalSteps, "Initializing..."
+        
+        currentStep = currentStep + 1
+        .UpdateProgress currentStep, totalSteps, "Step 1: Setup"
+        
+        ' Find target CSV workbook
+        targetPrefix = "landlord-compliance-checks-landlord-report"
+        found = False
+        
+        For Each wb In Application.Workbooks
+            If LCase(Left(wb.Name, Len(targetPrefix))) = targetPrefix Then
+                Set csvWorkbook = wb
+                found = True
+                Exit For
+            End If
+        Next wb
+        
+        If Not found Then
+            MsgBox "No open workbook found with name starting '" & targetPrefix & "'.", vbExclamation
+            GoTo CleanUp
+        End If
+        
+        currentStep = currentStep + 1
+        .UpdateProgress currentStep, totalSteps, "Step 2: Copying CSV data"
+        
+        ' Create new workbook and copy data
+        Set targetWB = Workbooks.Add
+        Set ws = csvWorkbook.Sheets(1)
+        
+        With targetWB.Sheets(1)
+            .Name = "Main"
+            ws.UsedRange.Copy Destination:=.Range("A1")
+            .UsedRange.Columns.AutoFit
+        End With
+        
+        currentStep = currentStep + 1
+        .UpdateProgress currentStep, totalSteps, "Step 3: Processing filters"
+        
+        ' Process columns and filters efficiently
+        Call ProcessMainSheet(targetWB.Sheets("Main"))
+        
+        currentStep = currentStep + 1
+        .UpdateProgress currentStep, totalSteps, "Step 4: Creating Filter sheet"
+        
+        ' Create and populate filter sheet
+        Set filterSheet = CreateFilterSheet(targetWB)
+        
+        currentStep = currentStep + 1
+        .UpdateProgress currentStep, totalSteps, "Step 5: Creating final sheets"
+        
+        ' Create final worksheets
+        Call CreateFinalSheets(targetWB, filterSheet)
+        
+        ' Final setup
+        With targetWB
+            .Sheets("Filter").Visible = xlSheetHidden
+            .Sheets("Sent to LR").Activate
+            .Sheets("Sent to LR").Range("A1").Select
+        End With
+        
+        Dim rowCount As Long
+        rowCount = targetWB.Sheets("Sent to LR").Cells(targetWB.Sheets("Sent to LR").Rows.Count, "A").End(xlUp).row - 1
+        
+        .UpdateProgress totalSteps, totalSteps, "Processing Complete. Total Rows: " & rowCount
+        
+        MsgBox "Processing complete!" & vbCrLf & _
+               "Total rows processed in 'Sent to LR': " & rowCount, vbInformation
+    End With
+    
+CleanUp:
+    ' Restore Excel settings
+    Application.CutCopyMode = False
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    Application.EnableEvents = True
+    Application.DisplayAlerts = True
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "An error occurred: " & Err.Description & vbCrLf & "Error Number: " & Err.Number, vbCritical
+    GoTo CleanUp
+End Sub
+
+Private Sub ProcessMainSheet(ws As Worksheet)
+    Dim lastCol As Long, lastRow As Long
+    Dim col As Long, row As Long
+    Dim headerMap As Object
+    Dim dataRange As Range
+    Dim cell As Range
+    
+    Set headerMap = CreateObject("Scripting.Dictionary")
+    
+    With ws
+        lastCol = .Cells(1, .Columns.Count).End(xlToLeft).Column
+        lastRow = .Cells(.Rows.Count, 1).End(xlUp).row
+        
+        ' Build header map for faster lookups - FIXED: Better case handling
+        For col = 1 To lastCol
+            Dim headerValue As String
+            headerValue = Trim(.Cells(1, col).Value)
+            If headerValue <> "" Then
+                headerMap(UCase(headerValue)) = col
+            End If
+        Next col
+        
+        ' Delete unwanted columns (from right to left to maintain indexes)
+        Dim columnsToDelete As Variant
+        columnsToDelete = Array("PHONE", "LIFETIME LIVE TENANCIES", "LIFETIME ARCHIVE TENANCIES")
+        
+        For col = lastCol To 1 Step -1
+            Dim cellValue As String
+            cellValue = Trim(UCase(.Cells(1, col).Value))
+            If IsInArray(cellValue, columnsToDelete) Then
+                .Columns(col).Delete
+            End If
+        Next col
+        
+        ' Recalculate after deletions
+        lastCol = .Cells(1, .Columns.Count).End(xlToLeft).Column
+        
+        ' Update header map after deletions
+        headerMap.RemoveAll
+        For col = 1 To lastCol
+            Dim headerVal As String
+            headerVal = Trim(.Cells(1, col).Value)
+            If headerVal <> "" Then
+                headerMap(UCase(headerVal)) = col
+            End If
+        Next col
+        
+        ' Hide columns - UPDATED: Don't hide EMAIL and ADDRESS as they'll be needed
+        Dim columnsToHide As Variant
+        Dim columnToHide As Variant
+        columnsToHide = Array("LANDLORD REGISTRATION DATE")
+        
+        For Each columnToHide In columnsToHide
+            If headerMap.exists(columnToHide) Then
+                .Columns(headerMap(columnToHide)).Hidden = True
+            End If
+        Next columnToHide
+        
+        ' FIXED: Improved UNIPOL filtering with better error handling
+        If headerMap.exists("NRLA ID") Then
+            Dim nrlaCol As Long
+            nrlaCol = headerMap("NRLA ID")
+            
+            ' First, filter to show only UNIPOL entries to delete them
+            On Error Resume Next
+            Set dataRange = .Range(.Cells(1, 1), .Cells(lastRow, lastCol))
+            dataRange.AutoFilter Field:=nrlaCol, Criteria1:="UNIPOL*"
+            
+            ' Delete UNIPOL rows if any exist
+            Dim deleteRange As Range
+            Set deleteRange = .Range("A2:A" & lastRow).SpecialCells(xlCellTypeVisible)
+            If Not deleteRange Is Nothing And deleteRange.Cells.Count > 0 Then
+                deleteRange.EntireRow.Delete
+            End If
+            On Error GoTo 0
+            
+            ' Show all remaining data
+            If .AutoFilterMode Then .AutoFilter.ShowAllData
+        End If
+        
+        .UsedRange.Columns.AutoFit
+    End With
+End Sub
+
+Private Function CreateFilterSheet(targetWB As Workbook) As Worksheet
+    Dim filterSheet As Worksheet
+    Dim mainSheet As Worksheet
+    Dim headerMap As Object
+    Dim lastRow As Long, lastCol As Long
+    Dim outputRow As Long
+    Dim filterKeywords As Variant
+    
+    Set mainSheet = targetWB.Sheets("Main")
+    Set filterSheet = targetWB.Sheets.Add(After:=targetWB.Sheets(targetWB.Sheets.Count))
+    filterSheet.Name = "Filter"
+    
+    Set headerMap = CreateObject("Scripting.Dictionary")
+    
+    With mainSheet
+        lastCol = .Cells(1, .Columns.Count).End(xlToLeft).Column
+        lastRow = .Cells(.Rows.Count, 1).End(xlUp).row
+        
+        ' Build header map
+        For col = 1 To lastCol
+            Dim hValue As String
+            hValue = Trim(.Cells(1, col).Value)
+            If hValue <> "" Then
+                headerMap(UCase(hValue)) = col
+            End If
+        Next col
+    End With
+    
+    ' Copy headers to filter sheet
+    mainSheet.Range("A1").Resize(1, lastCol).Copy Destination:=filterSheet.Range("A1")
+    outputRow = 2
+    
+    ' UPDATED: Define filter criteria with new keywords
+    filterKeywords = Array("Ltd", "Limited", "Lettings", "Holdings", "Property", "Properties", "Assets", "Homes", "Housing", "Residential", "Estate", "Estates")
+    
+    ' Apply multiple filters efficiently using arrays
+    Call ApplyMultipleFilters(mainSheet, filterSheet, headerMap, filterKeywords, outputRow)
+    
+    ' Apply numeric filters
+    Call ApplyNumericFilters(mainSheet, filterSheet, headerMap, outputRow)
+    
+    ' Remove duplicates and process names
+    Call ProcessFilterSheetData(filterSheet)
+    
+    Set CreateFilterSheet = filterSheet
+End Function
+
+Private Sub ApplyMultipleFilters(mainSheet As Worksheet, filterSheet As Worksheet, _
+                                headerMap As Object, filterKeywords As Variant, ByRef outputRow As Long)
+    Dim keyword As Variant
+    Dim visibleRange As Range
+    Dim lastRow As Long, lastCol As Long
+    
+    With mainSheet
+        lastRow = .Cells(.Rows.Count, 1).End(xlUp).row
+        lastCol = .Cells(1, .Columns.Count).End(xlToLeft).Column
+        
+        If Not headerMap.exists("NAME") Then Exit Sub
+        
+        For Each keyword In filterKeywords
+            On Error Resume Next
+            .Range(.Cells(1, 1), .Cells(lastRow, lastCol)).AutoFilter _
+                Field:=headerMap("NAME"), Criteria1:="*" & keyword & "*"
+            
+            Set visibleRange = .Range(.Cells(2, 1), .Cells(lastRow, lastCol)).SpecialCells(xlCellTypeVisible)
+            
+            If Not visibleRange Is Nothing Then
+                visibleRange.Copy Destination:=filterSheet.Range("A" & outputRow)
+                outputRow = filterSheet.Cells(filterSheet.Rows.Count, 1).End(xlUp).row + 1
+            End If
+            Set visibleRange = Nothing
+            On Error GoTo 0
+            
+            If .AutoFilterMode Then .AutoFilter.ShowAllData
+        Next keyword
+    End With
+End Sub
+
+Private Sub ApplyNumericFilters(mainSheet As Worksheet, filterSheet As Worksheet, _
+                               headerMap As Object, ByRef outputRow As Long)
+    Dim lastRow As Long, lastCol As Long
+    Dim visibleRange As Range
+    
+    With mainSheet
+        lastRow = .Cells(.Rows.Count, 1).End(xlUp).row
+        lastCol = .Cells(1, .Columns.Count).End(xlToLeft).Column
+        
+        ' FIXED: Convert values to numbers before filtering
+        ' Filter by Tenancies >= 3
+        If headerMap.exists("TENANCIES REGISTERED IN PERIOD") Then
+            Dim tenancyCol As Long
+            tenancyCol = headerMap("TENANCIES REGISTERED IN PERIOD")
+            
+            ' Convert text to numbers in the column first
+            Call ConvertColumnToNumbers(mainSheet, tenancyCol, lastRow)
+            
+            On Error Resume Next
+            .Range(.Cells(1, 1), .Cells(lastRow, lastCol)).AutoFilter _
+                Field:=tenancyCol, Criteria1:=">=3"
+            
+            Set visibleRange = .Range(.Cells(2, 1), .Cells(lastRow, lastCol)).SpecialCells(xlCellTypeVisible)
+            If Not visibleRange Is Nothing Then
+                visibleRange.Copy Destination:=filterSheet.Range("A" & outputRow)
+                outputRow = filterSheet.Cells(filterSheet.Rows.Count, 1).End(xlUp).row + 1
+            End If
+            On Error GoTo 0
+            If .AutoFilterMode Then .AutoFilter.ShowAllData
+        End If
+        
+        ' Filter by Deposit >= 3000
+        If headerMap.exists("HIGHEST DEPOSIT VALUE IN PERIOD MONEY") Then
+            Dim depositCol As Long
+            depositCol = headerMap("HIGHEST DEPOSIT VALUE IN PERIOD MONEY")
+            
+            ' Convert text to numbers in the column first
+            Call ConvertColumnToNumbers(mainSheet, depositCol, lastRow)
+            
+            On Error Resume Next
+            .Range(.Cells(1, 1), .Cells(lastRow, lastCol)).AutoFilter _
+                Field:=depositCol, Criteria1:=">=3000"
+            
+            Set visibleRange = .Range(.Cells(2, 1), .Cells(lastRow, lastCol)).SpecialCells(xlCellTypeVisible)
+            If Not visibleRange Is Nothing Then
+                visibleRange.Copy Destination:=filterSheet.Range("A" & outputRow)
+                outputRow = filterSheet.Cells(filterSheet.Rows.Count, 1).End(xlUp).row + 1
+            End If
+            On Error GoTo 0
+            If .AutoFilterMode Then .AutoFilter.ShowAllData
+        End If
+    End With
+End Sub
+
+' FIXED: New helper function to convert text to numbers
+Private Sub ConvertColumnToNumbers(ws As Worksheet, colNum As Long, lastRow As Long)
+    Dim i As Long
+    Dim cellVal As Variant
+    
+    On Error Resume Next
+    For i = 2 To lastRow ' Skip header row
+        cellVal = ws.Cells(i, colNum).Value
+        If IsNumeric(cellVal) And cellVal <> "" Then
+            ws.Cells(i, colNum).Value = CDbl(cellVal)
+        End If
+    Next i
+    On Error GoTo 0
+End Sub
+
+Private Sub ProcessFilterSheetData(filterSheet As Worksheet)
+    Dim lastRow As Long, lastCol As Long
+    
+    With filterSheet
+        lastRow = .Cells(.Rows.Count, 1).End(xlUp).row
+        lastCol = .Cells(1, .Columns.Count).End(xlToLeft).Column
+        
+        ' Remove duplicates - FIXED: Better error handling
+        On Error Resume Next
+        If lastRow > 1 Then
+            .Range("A1").Resize(lastRow, lastCol).RemoveDuplicates Columns:=Array(3), header:=xlYes
+        End If
+        On Error GoTo 0
+        
+        ' Recalculate after duplicate removal
+        lastRow = .Cells(.Rows.Count, 1).End(xlUp).row
+        
+        ' Process name columns
+        Call ProcessNameColumns(filterSheet)
+        
+        ' Process landlord ID column
+        Call ProcessLandlordIDs(filterSheet)
+        
+        .UsedRange.Columns.AutoFit
+    End With
+End Sub
+
+Private Sub ProcessNameColumns(filterSheet As Worksheet)
+    Dim nameHeaderCell As Range
+    Dim nameCol As Long, companyCol As Long, firstNameCol As Long, surnameCol As Long
+    Dim lastRow As Long
+    Dim companyKeywords As Variant
+    Dim dataArray As Variant
+    Dim i As Long
+    
+    ' UPDATED: Added new keywords
+    companyKeywords = Array("Ltd", "Limited", "Lettings", "Holdings", "Property", "Properties", "Assets", "Development", "Charity", "Residential", "Estate", "Estates")
+    
+    With filterSheet
+        ' Find Name column and insert new columns
+        Set nameHeaderCell = .Rows(1).Find(What:="Name", LookIn:=xlValues, LookAt:=xlWhole)
+        If nameHeaderCell Is Nothing Then Exit Sub
+        
+        nameCol = nameHeaderCell.Column
+        
+        ' Insert Company Name column
+        .Columns(nameCol).Insert Shift:=xlToRight
+        .Cells(1, nameCol).Value = "Company Name"
+        
+        ' Update column references
+        firstNameCol = nameCol + 1
+        .Cells(1, firstNameCol).Value = "Forename"
+        
+        ' Insert Surname column
+        .Columns(firstNameCol + 1).Insert Shift:=xlToRight
+        surnameCol = firstNameCol + 1
+        .Cells(1, surnameCol).Value = "Surname"
+        
+        lastRow = .Cells(.Rows.Count, firstNameCol).End(xlUp).row
+        
+        ' Process names - FIXED: Better error handling for arrays
+        If lastRow > 1 Then
+            On Error Resume Next
+            dataArray = .Range(.Cells(2, firstNameCol), .Cells(lastRow, firstNameCol)).Value
+            On Error GoTo 0
+            
+            If IsArray(dataArray) Then
+                For i = 1 To UBound(dataArray, 1)
+                    Dim nameValue As String
+                    nameValue = Trim(CStr(dataArray(i, 1)))
+                    
+                    If nameValue <> "" Then
+                        ' Check if it's a company
+                        If IsCompanyName(nameValue, companyKeywords) Then
+                            .Cells(i + 1, nameCol).Value = nameValue ' Company Name
+                            .Cells(i + 1, firstNameCol).Value = "" ' Clear Forename
+                        Else
+                            ' Split personal names
+                            Call SplitPersonalName(nameValue, .Cells(i + 1, firstNameCol), .Cells(i + 1, surnameCol))
+                        End If
+                    End If
+                Next i
+            End If
+        End If
+    End With
+End Sub
+
+Private Function IsCompanyName(nameValue As String, companyKeywords As Variant) As Boolean
+    Dim keyword As Variant
+    For Each keyword In companyKeywords
+        If InStr(1, nameValue, keyword, vbTextCompare) > 0 Then
+            IsCompanyName = True
+            Exit Function
+        End If
+    Next keyword
+    IsCompanyName = False
+End Function
+
+Private Sub SplitPersonalName(nameValue As String, firstNameCell As Range, surnameCell As Range)
+    ' FIXED: Better error handling for Split function
+    On Error GoTo ErrorHandler
+    
+    If Trim(nameValue) = "" Then Exit Sub
+    
+    Dim nameParts() As String
+    nameParts = Split(nameValue, " ")
+    
+    ' FIXED: Check if array has elements before using UBound
+    Dim arraySize As Long
+    arraySize = UBound(nameParts) - LBound(nameParts) + 1
+    
+    Select Case arraySize
+        Case 2 ' Exactly two words
+            firstNameCell.Value = nameParts(0)
+            surnameCell.Value = nameParts(1)
+        Case Is > 2 ' More than two words - highlight for manual review
+            firstNameCell.Value = nameValue
+            firstNameCell.Interior.Color = RGB(255, 255, 0) ' Yellow
+        Case 1 ' Single word
+            firstNameCell.Value = nameValue
+        Case Else ' Empty or problematic
+            firstNameCell.Value = nameValue
+    End Select
+    
+    Exit Sub
+    
+ErrorHandler:
+    ' If split fails, just put the whole name in first name
+    firstNameCell.Value = nameValue
+End Sub
+
+Private Sub ProcessLandlordIDs(filterSheet As Worksheet)
+    Dim lastRow As Long
+    Dim i As Long
+    Dim landlordVal As String
+    Dim landlordParts() As String
+    
+    With filterSheet
+        lastRow = .Cells(.Rows.Count, 1).End(xlUp).row
+        
+        For i = 2 To lastRow
+            On Error Resume Next
+            landlordVal = Trim(.Cells(i, 1).Value)
+            If InStr(landlordVal, "::") > 0 Then
+                landlordParts = Split(landlordVal, "::")
+                ' FIXED: Check array bounds before accessing
+                If UBound(landlordParts) >= 1 Then
+                    .Cells(i, 1).Value = landlordParts(1)
+                End If
+            End If
+            On Error GoTo 0
+        Next i
+    End With
+End Sub
+
+Private Sub CreateFinalSheets(targetWB As Workbook, filterSheet As Worksheet)
+    ' Create Sent to LR sheet
+    Call CreateSentToLRSheet(targetWB, filterSheet)
+    
+    ' Create Returned Data sheet
+    Call CreateReturnedDataSheet(targetWB)
+    
+    ' Create Final Data sheet
+    Call CreateFinalDataSheet(targetWB)
+    
+    ' Rename main sheet
+    On Error Resume Next
+    targetWB.Sheets(1).Name = "landlord-compliance-checks-land"
+    On Error GoTo 0
+End Sub
+
+Private Sub CreateSentToLRSheet(targetWB As Workbook, filterSheet As Worksheet)
+    Dim sentSheet As Worksheet
+    Dim sentHeaders As Variant
+    Dim sourceLastRow As Long
+    Dim colMap As Object
+    Dim i As Long
+    
+    ' UPDATED: Added Email Address and Landlord Address columns
+    sentHeaders = Array("CustomerRef", "Forename", "Surname", "Company Name Supplied", _
+                        "Email Address", "Landlord Address", "Input Address One", "Input Address Two", _
+                        "Input Address Three", "Input Address Four", "Input Address Five", "Input Postcode")
+    
+    Set sentSheet = targetWB.Sheets.Add(After:=targetWB.Sheets(targetWB.Sheets.Count))
+    sentSheet.Name = "Sent to LR"
+    
+    ' Write headers
+    For i = 0 To UBound(sentHeaders)
+        sentSheet.Cells(1, i + 1).Value = sentHeaders(i)
+    Next i
+    
+    ' Create column mapping
+    Set colMap = CreateColumnMapping(filterSheet)
+    
+    ' Copy data efficiently
+    Call CopyFilterDataToSent(filterSheet, sentSheet, colMap)
+    
+    ' Process addresses
+    Call ProcessAddresses(sentSheet)
+    
+    ' UPDATED: Clean punctuation from all columns with special handling for hyphens in addresses
+    Call CleanPunctuationFromAllColumns(sentSheet)
+    
+    ' UPDATED: Sort by Customer Ref ascending
+    Call SortByCustomerRef(sentSheet)
+    
+    sentSheet.UsedRange.Columns.AutoFit
+End Sub
+
+Private Function CreateColumnMapping(filterSheet As Worksheet) As Object
+    Dim colMap As Object
+    Dim header As Range
+    Dim c As Range
+    
+    Set colMap = CreateObject("Scripting.Dictionary")
+    Set header = filterSheet.Rows(1)
+    
+    For Each c In header.Cells
+        If Trim(c.Value) <> "" Then
+            colMap(Trim(UCase(c.Value))) = c.Column
+        End If
+    Next c
+    
+    Set CreateColumnMapping = colMap
+End Function
+
+Private Sub CopyFilterDataToSent(filterSheet As Worksheet, sentSheet As Worksheet, colMap As Object)
+    Dim sourceLastRow As Long
+    Dim rowIndex As Long
+    Dim requiredCols As Variant
+    Dim requiredHeader As Variant
+    
+    ' UPDATED: Added EMAIL and ADDRESS to required columns
+    requiredCols = Array("LANDLORD ID", "FORENAME", "SURNAME", "COMPANY NAME", "EMAIL", "ADDRESS", _
+                         "TENANCY FIRST LINE", "TENANCY TOWN", "TENANCY COUNTY", "TENANCY POSTCODE")
+    
+    ' Validate required columns exist
+    For Each requiredHeader In requiredCols
+        If Not colMap.exists(requiredHeader) Then
+            MsgBox "Column '" & requiredHeader & "' not found in 'Filter' sheet.", vbExclamation
+            Exit Sub
+        End If
+    Next requiredHeader
+    
+    sourceLastRow = filterSheet.Cells(filterSheet.Rows.Count, 1).End(xlUp).row
+    
+    ' UPDATED: Copy data including Email and Address columns
+    With sentSheet
+        For rowIndex = 2 To sourceLastRow
+            .Cells(rowIndex, 1).Value = filterSheet.Cells(rowIndex, colMap("LANDLORD ID")).Value
+            .Cells(rowIndex, 2).Value = filterSheet.Cells(rowIndex, colMap("FORENAME")).Value
+            .Cells(rowIndex, 3).Value = filterSheet.Cells(rowIndex, colMap("SURNAME")).Value
+            .Cells(rowIndex, 4).Value = filterSheet.Cells(rowIndex, colMap("COMPANY NAME")).Value
+            .Cells(rowIndex, 5).Value = filterSheet.Cells(rowIndex, colMap("EMAIL")).Value
+            .Cells(rowIndex, 6).Value = filterSheet.Cells(rowIndex, colMap("ADDRESS")).Value
+            .Cells(rowIndex, 7).Value = filterSheet.Cells(rowIndex, colMap("TENANCY FIRST LINE")).Value
+            .Cells(rowIndex, 10).Value = filterSheet.Cells(rowIndex, colMap("TENANCY TOWN")).Value
+            .Cells(rowIndex, 11).Value = filterSheet.Cells(rowIndex, colMap("TENANCY COUNTY")).Value
+            .Cells(rowIndex, 12).Value = filterSheet.Cells(rowIndex, colMap("TENANCY POSTCODE")).Value
+        Next rowIndex
+    End With
+End Sub
+
+' UPDATED: New function to clean punctuation from all columns with special handling for hyphens
+Private Sub CleanPunctuationFromAllColumns(sentSheet As Worksheet)
+    Dim lastRow As Long, lastCol As Long
+    Dim i As Long, col As Long
+    Dim cellValue As String, cleanText As String
+    Dim addressCols As Variant
+    Dim isAddressCol As Boolean
+    Dim isEmailCol As Boolean
+    Dim isPostcodeCol As Boolean
+    Dim isCompanyNameCol As Boolean
+    Dim isForenameCol As Boolean
+    Dim isHeaderRow As Boolean
+    
+    ' Define which columns are address columns (1-based column numbers)
+    addressCols = Array(6, 7, 8, 9, 10, 11) ' Landlord Address, Input Address One through Five
+    
+    With sentSheet
+        lastRow = .Cells(.Rows.Count, "A").End(xlUp).row
+        lastCol = .Cells(1, .Columns.Count).End(xlToLeft).Column
+        
+        For i = 1 To lastRow ' Start from 1 to include headers
+            isHeaderRow = (i = 1)
+            
+            For col = 1 To lastCol
+                cellValue = .Cells(i, col).Value
+                If Trim(cellValue) <> "" Then
+                    ' Don't clean header row (column headings)
+                    If isHeaderRow Then
+                        ' Skip cleaning for headers
+                        cleanText = cellValue
+                    Else
+                        ' Check column types
+                        isAddressCol = IsInArray(col, addressCols)
+                        isEmailCol = (col = 5) ' Email Address column
+                        isPostcodeCol = (col = 12) ' Input Postcode column
+                        isCompanyNameCol = (col = 4) ' Company Name Supplied column
+                        isForenameCol = (col = 2) ' Forename column
+                        
+                        If isEmailCol Or isPostcodeCol Then
+                            ' Don't clean email addresses or postcodes
+                            cleanText = cellValue
+                        ElseIf isAddressCol Or isForenameCol Or isCompanyNameCol Then
+                            ' For address columns, forename, and company name - replace punctuation with spaces, keep existing spaces
+                            cleanText = ReplacePunctuationWithSpaces(cellValue)
+                        Else
+                            ' For other data columns, clean all punctuation
+                            cleanText = CleanAllPunctuation(cellValue)
+                        End If
+                    End If
+                    
+                    .Cells(i, col).Value = Trim(cleanText)
+                End If
+            Next col
+        Next i
+    End With
+End Sub
+
+' Helper function to replace punctuation with spaces (for forename and address columns)
+Private Function ReplacePunctuationWithSpaces(text As String) As String
+    Dim regex As Object
+    On Error Resume Next
+    Set regex = CreateObject("VBScript.RegExp")
+    regex.Global = True
+    regex.Pattern = "[^\w\s]" ' Match everything except word characters and spaces
+    ReplacePunctuationWithSpaces = regex.Replace(text, " ")
+    On Error GoTo 0
+    
+    ' If regex failed, fallback to manual replacement
+    If regex Is Nothing Then
+        ReplacePunctuationWithSpaces = ManualReplacePunctuationWithSpaces(text)
+    End If
+    
+    ' Clean up multiple spaces
+    Do While InStr(ReplacePunctuationWithSpaces, "  ") > 0
+        ReplacePunctuationWithSpaces = Replace(ReplacePunctuationWithSpaces, "  ", " ")
+    Loop
+End Function
+
+' Fallback manual punctuation replacement with spaces
+Private Function ManualReplacePunctuationWithSpaces(text As String) As String
+    Dim i As Long
+    Dim char As String
+    Dim result As String
+    
+    For i = 1 To Len(text)
+        char = Mid(text, i, 1)
+        If (char >= "A" And char <= "Z") Or (char >= "a" And char <= "z") Or (char >= "0" And char <= "9") Or char = " " Then
+            result = result & char
+        Else
+            result = result & " " ' Replace punctuation with space
+        End If
+    Next i
+    
+    ManualReplacePunctuationWithSpaces = result
+End Function
+
+' Helper function to clean punctuation but preserve spaces
+Private Function CleanPunctuationButKeepSpaces(text As String) As String
+    Dim regex As Object
+    On Error Resume Next
+    Set regex = CreateObject("VBScript.RegExp")
+    regex.Global = True
+    regex.Pattern = "[^\w\s]" ' Remove everything except word characters and spaces
+    CleanPunctuationButKeepSpaces = regex.Replace(text, "")
+    On Error GoTo 0
+    
+    ' If regex failed, fallback to manual cleaning
+    If regex Is Nothing Then
+        CleanPunctuationButKeepSpaces = ManualCleanPunctuation(text, True)
+    End If
+End Function
+
+' Helper function to clean all punctuation
+Private Function CleanAllPunctuation(text As String) As String
+    Dim regex As Object
+    On Error Resume Next
+    Set regex = CreateObject("VBScript.RegExp")
+    regex.Global = True
+    regex.Pattern = "[^\w]" ' Remove everything except word characters
+    CleanAllPunctuation = regex.Replace(text, "")
+    On Error GoTo 0
+    
+    ' If regex failed, fallback to manual cleaning
+    If regex Is Nothing Then
+        CleanAllPunctuation = ManualCleanPunctuation(text, False)
+    End If
+End Function
+
+' Fallback manual punctuation cleaning
+Private Function ManualCleanPunctuation(text As String, keepSpaces As Boolean) As String
+    Dim i As Long
+    Dim char As String
+    Dim result As String
+    
+    For i = 1 To Len(text)
+        char = Mid(text, i, 1)
+        If (char >= "A" And char <= "Z") Or (char >= "a" And char <= "z") Or (char >= "0" And char <= "9") Then
+            result = result & char
+        ElseIf keepSpaces And char = " " Then
+            result = result & char
+        End If
+    Next i
+    
+    ManualCleanPunctuation = result
+End Function
+
+' UPDATED: New function to sort by Customer Ref ascending
+Private Sub SortByCustomerRef(sentSheet As Worksheet)
+    Dim lastRow As Long, lastCol As Long
+    Dim sortRange As Range
+    
+    With sentSheet
+        lastRow = .Cells(.Rows.Count, "A").End(xlUp).row
+        lastCol = .Cells(1, .Columns.Count).End(xlToLeft).Column
+        
+        If lastRow > 1 Then
+            Set sortRange = .Range(.Cells(1, 1), .Cells(lastRow, lastCol))
+            
+            On Error Resume Next
+            sortRange.Sort Key1:=.Columns(1), Order1:=xlAscending, header:=xlYes
+            On Error GoTo 0
+        End If
+    End With
+End Sub
+
+Private Sub ProcessAddresses(sentSheet As Worksheet)
+    Dim lastRow As Long
+    Dim i As Long
+    Dim regex As Object
+    
+    On Error Resume Next
+    Set regex = CreateObject("VBScript.RegExp")
+    regex.IgnoreCase = True
+    regex.Global = True
+    regex.Pattern = "\broom\s\d+\b"
+    On Error GoTo 0
+    
+    With sentSheet
+        lastRow = .Cells(.Rows.Count, "A").End(xlUp).row
+        
+        For i = 2 To lastRow
+            Dim originalText As String, cleanedText As String
+            
+            ' Clean "room X" patterns from Input Address One (now column 7)
+            originalText = .Cells(i, 7).Value
+            If Trim(originalText) <> "" Then
+                If Not regex Is Nothing Then
+                    cleanedText = Trim(regex.Replace(originalText, ""))
+                Else
+                    cleanedText = originalText
+                End If
+                .Cells(i, 7).Value = FormatAddress(cleanedText)
+            End If
+        Next i
+        
+        ' Split addresses by commas
+        Call SplitAddressesByCommas(sentSheet, lastRow)
+        
+        ' UPDATED: Compact addresses to remove gaps
+        Call CompactAddresses(sentSheet, lastRow)
+        
+        ' Format postcodes
+        Call FormatPostcodes(sentSheet, lastRow)
+    End With
+End Sub
+
+Private Sub SplitAddressesByCommas(sentSheet As Worksheet, lastRow As Long)
+    Dim i As Long
+    Dim addrOne As String, addrTwo As String, addrThree As String
+    Dim commaPos As Long
+    
+    With sentSheet
+        For i = 2 To lastRow
+            ' Process Input Address One (column 7) to Input Address Two (column 8)
+            addrOne = Trim(.Cells(i, 7).Value)
+            Do While Left(addrOne, 1) = ","
+                addrOne = Mid(addrOne, 2)
+            Loop
+            addrOne = Trim(addrOne)
+            
+            commaPos = InStr(addrOne, ",")
+            If commaPos > 0 Then
+                .Cells(i, 7).Value = Trim(Left(addrOne, commaPos - 1))
+                addrTwo = Trim(Mid(addrOne, commaPos + 1))
+                .Cells(i, 8).Value = addrTwo
+                
+                ' Process Input Address Two (column 8) to Input Address Three (column 9)
+                commaPos = InStr(addrTwo, ",")
+                If commaPos > 0 Then
+                    .Cells(i, 8).Value = Trim(Left(addrTwo, commaPos - 1))
+                    .Cells(i, 9).Value = Trim(Mid(addrTwo, commaPos + 1))
+                End If
+            Else
+                .Cells(i, 7).Value = addrOne
+            End If
+        Next i
+    End With
+End Sub
+
+' UPDATED: New function to compact addresses by removing gaps
+Private Sub CompactAddresses(sentSheet As Worksheet, lastRow As Long)
+    Dim i As Long, col As Long
+    Dim addrValues As Collection
+    Dim colIndex As Long
+    
+    With sentSheet
+        For i = 2 To lastRow
+            Set addrValues = New Collection
+            
+            ' Collect non-empty values from address columns 7-11 (Input Address One through Five)
+            For colIndex = 7 To 11
+                If Trim(.Cells(i, colIndex).Value) <> "" Then
+                    addrValues.Add .Cells(i, colIndex).Value
+                End If
+            Next colIndex
+            
+            ' Clear all address columns first
+            For colIndex = 7 To 11
+                .Cells(i, colIndex).Value = ""
+            Next colIndex
+            
+            ' Repopulate from left to right without gaps
+            For colIndex = 1 To addrValues.Count
+                If colIndex <= 5 Then ' Ensure we don't exceed Input Address Five
+                    .Cells(i, colIndex + 6).Value = addrValues(colIndex) ' Start at column 7
+                End If
+            Next colIndex
+        Next i
+    End With
+End Sub
+
+Private Sub FormatPostcodes(sentSheet As Worksheet, lastRow As Long)
+    Dim i As Long
+    Dim rawPostcode As String, formattedPostcode As String
+    Dim pcLength As Integer
+    
+    With sentSheet
+        For i = 2 To lastRow
+            ' Input Postcode is now column 12
+            rawPostcode = Replace(.Cells(i, 12).Value, " ", "")
+            pcLength = Len(rawPostcode)
+            
+            If pcLength >= 5 Then
+                formattedPostcode = UCase(Left(rawPostcode, pcLength - 3) & " " & Right(rawPostcode, 3))
+                .Cells(i, 12).Value = formattedPostcode
+            End If
+        Next i
+    End With
+End Sub
+
+Private Sub CreateReturnedDataSheet(targetWB As Workbook)
+    Dim returnedSheet As Worksheet
+    Dim sentSheet As Worksheet
+    Dim extraHeaders As Variant
+    Dim lastCol As Long
+    Dim i As Long
+    
+    Set sentSheet = targetWB.Sheets("Sent to LR")
+    
+    On Error Resume Next
+    targetWB.Sheets("Returned Data").Delete
+    On Error GoTo 0
+    
+    Set returnedSheet = targetWB.Sheets.Add(After:=sentSheet)
+    returnedSheet.Name = "Returned Data"
+    
+    lastCol = sentSheet.Cells(1, sentSheet.Columns.Count).End(xlToLeft).Column
+    sentSheet.Range(sentSheet.Cells(1, 1), sentSheet.Cells(1, lastCol)).Copy _
+        Destination:=returnedSheet.Range("A1")
+    
+    extraHeaders = Array("Address Match Result", "Title No", "Name Match Result", "TDS Write to Y/N")
+    For i = 0 To UBound(extraHeaders)
+        returnedSheet.Cells(1, lastCol + 1 + i).Value = extraHeaders(i)
+    Next i
+End Sub
+
+Private Sub CreateFinalDataSheet(targetWB As Workbook)
+    Dim finalSheet As Worksheet
+    Dim finalHeaders As Variant
+    Dim j As Long
+    
+    On Error Resume Next
+    targetWB.Sheets("Final Data").Delete
+    On Error GoTo 0
+    
+    Set finalSheet = targetWB.Sheets.Add(After:=targetWB.Sheets(targetWB.Sheets.Count))
+    finalSheet.Name = "Final Data"
+    
+    finalHeaders = Array("Landlord ID", "First Name", "Email", "Landlord Address", _
+                         "Tenancies Registered in Period", "Highest Deposit Value in Period", _
+                         "Tenancy Address", "TDS To Check Y/N", "TDS Write To Y/N")
+    
+    For j = 0 To UBound(finalHeaders)
+        finalSheet.Cells(1, j + 1).Value = finalHeaders(j)
+    Next j
+End Sub
+
+' Helper function for minimum value
+Private Function Min(val1 As Long, val2 As Long) As Long
+    If val1 < val2 Then
+        Min = val1
+    Else
+        Min = val2
+    End If
+End Function
+
+' Helper function to check if value is in array
+Private Function IsInArray(valToBeFound As Variant, arr As Variant) As Boolean
+    Dim element As Variant
+    On Error Resume Next
+    For Each element In arr
+        If element = valToBeFound Then
+            IsInArray = True
+            Exit Function
+        End If
+    Next element
+    On Error GoTo 0
+    IsInArray = False
+End Function
+
+' Placeholder for FormatAddress function - implement based on your requirements
+Private Function FormatAddress(address As String) As String
+    FormatAddress = Trim(address) ' Basic implementation
+End Function
+
+-------------------------------------------------------------------------------
+VBA MACRO AddressFormat.bas 
+in file: xl/vbaProject.bin - OLE stream: 'VBA/AddressFormat'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+Function FormatAddress(address As String) As String
+    Dim words() As String
+    Dim result As String
+    Dim i As Integer
+    Dim unitPart As String
+    Dim restPart As String
+    Dim numIndex As Integer
+
+    ' Normalize spaces
+    address = Application.WorksheetFunction.Trim(address)
+    Do While InStr(address, "  ") > 0
+        address = Replace(address, "  ", " ")
+    Loop
+
+    ' Split into words
+    words = Split(address, " ")
+
+    ' Capitalize each word
+    For i = LBound(words) To UBound(words)
+        words(i) = UCase(Left(LCase(words(i)), 1)) & Mid(LCase(words(i)), 2)
+    Next i
+
+    ' Try to detect pattern like "Flat 3 114 Streetname..."
+    unitPart = ""
+    restPart = ""
+    If UBound(words) >= 2 Then
+        If LCase(words(0)) = "flat" Or LCase(words(0)) = "unit" Or LCase(words(0)) = "apt" Then
+            If IsNumeric(words(1)) And IsNumeric(words(2)) Then
+                unitPart = words(0) & " " & words(1)
+                restPart = Join(SliceArray(words, 2), " ")
+                result = unitPart & ", " & restPart
+                FormatAddress = result & "."
+                Exit Function
+            End If
+        End If
+    End If
+
+    ' Fallback: Rebuild the full address and insert commas between logical chunks (3-word logic)
+    If UBound(words) >= 5 Then
+        result = words(0) & " " & words(1) & " " & words(2) & ", " & _
+                 words(3) & " " & words(4) & ", " & _
+                 Join(SliceArray(words, 5), " ")
+    ElseIf UBound(words) >= 3 Then
+        result = words(0) & " " & words(1) & ", " & words(2) & " " & words(3)
+        For i = 4 To UBound(words)
+            result = result & " " & words(i)
+        Next i
+    Else
+        result = Join(words, " ")
+    End If
+
+    FormatAddress = Trim(result) & "."
+End Function
+
+' Helper to slice from position
+Private Function SliceArray(arr() As String, startIndex As Integer) As Variant
+    Dim result() As String
+    Dim i As Integer, j As Integer
+    ReDim result(UBound(arr) - startIndex)
+    j = 0
+    For i = startIndex To UBound(arr)
+        result(j) = arr(i)
+        j = j + 1
+    Next i
+    SliceArray = result
+End Function
+
+
+-------------------------------------------------------------------------------
+VBA MACRO ProgressForm.frm 
+in file: xl/vbaProject.bin - OLE stream: 'VBA/ProgressForm'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+Private Sub cmdExit_Click()
+ProgressForm.Hide
+End Sub
+
+Private Sub cmdRefresh_Click()
+    If IsLandlordCSVOpen() Then
+        cmdStart.Enabled = True
+        lblStatus.ForeColor = vbBlack
+        lblStatus.Caption = "CSV file detected. Ready to start."
+    Else
+        cmdStart.Enabled = False
+        lblStatus.ForeColor = vbRed
+        lblStatus.Caption = "No CSV file open"
+    End If
+End Sub
+
+Private Sub cmdStart_Click()
+    Dim hwnd As LongPtr
+    hwnd = FindWindowA(vbNullString, Me.Caption)
+
+    If hwnd <> 0 Then
+        SetWindowPos hwnd, HWND_TOPMOST, 0, 0, 0, 0, _
+                     SWP_NOMOVE Or SWP_NOSIZE Or SWP_NOACTIVATE
+    End If
+    
+   ' Me.KeepOnTop
+   ' Me.cmdStart.Enabled = False
+    Me.lblStatus.Caption = "Starting..."
+    Call CopyLandlordComplianceCSVtoNewWorkbook
+    
+End Sub
+
+Public Sub UpdateProgress(currentStep As Long, totalSteps As Long, Optional statusText As String = "")
+    Dim percent As Double
+    percent = currentStep / totalSteps
+
+    With Me.lblProgressBar
+        .Width = percent * Me.lblProgressBack.Width
+    End With
+
+    Me.lblStatus.Caption = statusText
+    DoEvents
+End Sub
+
+Private Sub Label1_Click()
+
+End Sub
+
+Private Sub UserForm_Click()
+
+End Sub
+Private Sub UserForm_Initialize()
+    
+    ' Disable button initially
+    Me.cmdStart.Enabled = False
+    
+    ' Check if required CSV is open
+    If IsLandlordCSVOpen() Then
+        cmdStart.Enabled = True
+        lblStatus.ForeColor = vbBlack
+        lblStatus.Caption = "CSV file detected. Ready to start."
+    Else
+        cmdStart.Enabled = False
+        lblStatus.ForeColor = vbRed
+        lblStatus.Caption = "No CSV file open"
+        
+    End If
+End Sub
+Private Sub UserForm_Activate()
+    
+End Sub
+
+Public Sub KeepOnTop()
+    
+End Sub
+
+
+
+-------------------------------------------------------------------------------
+VBA MACRO CSVCheck.bas 
+in file: xl/vbaProject.bin - OLE stream: 'VBA/CSVCheck'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+Public Function IsLandlordCSVOpen() As Boolean
+    Dim wb As Workbook
+    For Each wb In Application.Workbooks
+        If LCase(wb.Name) Like "landlord-compliance-checks-landlord-report*.csv" Then
+            IsLandlordCSVOpen = True
+            Exit Function
+        End If
+    Next wb
+    IsLandlordCSVOpen = False
+End Function
+
+-------------------------------------------------------------------------------
+VBA MACRO PostcodeFixer.bas 
+in file: xl/vbaProject.bin - OLE stream: 'VBA/PostcodeFixer'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+#If VBA7 Then
+    Public Declare PtrSafe Function FindWindowA Lib "user32" ( _
+        ByVal lpClassName As String, _
+        ByVal lpWindowName As String) As LongPtr
+
+    Public Declare PtrSafe Function SetWindowPos Lib "user32" ( _
+        ByVal hwnd As LongPtr, _
+        ByVal hWndInsertAfter As LongPtr, _
+        ByVal x As Long, ByVal y As Long, _
+        ByVal cx As Long, ByVal cy As Long, _
+        ByVal wFlags As Long) As LongPtr
+#Else
+    Public Declare Function FindWindowA Lib "user32" ( _
+        ByVal lpClassName As String, _
+        ByVal lpWindowName As String) As Long
+
+    Public Declare Function SetWindowPos Lib "user32" ( _
+        ByVal hwnd As Long, _
+        ByVal hWndInsertAfter As Long, _
+        ByVal x As Long, ByVal y As Long, _
+        ByVal cx As Long, ByVal cy As Long, _
+        ByVal wFlags As Long) As Long
+#End If
+
+Public Const HWND_TOPMOST = -1
+Public Const SWP_NOMOVE = &H2
+Public Const SWP_NOSIZE = &H1
+Public Const SWP_NOACTIVATE = &H10
+
+
+-------------------------------------------------------------------------------
+VBA MACRO ShowProgressForm.bas 
+in file: xl/vbaProject.bin - OLE stream: 'VBA/ShowProgressForm'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+Sub ShowMyForm()
+    ProgressForm.Show
+End Sub
+-------------------------------------------------------------------------------
+VBA FORM STRING IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm/o'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+�Status
+-------------------------------------------------------------------------------
+VBA FORM STRING IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm/o'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+�Start
+-------------------------------------------------------------------------------
+VBA FORM STRING IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm/o'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+�Refresh
+-------------------------------------------------------------------------------
+VBA FORM STRING IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm/o'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+�Progress:
+-------------------------------------------------------------------------------
+VBA FORM STRING IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm/o'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+�Exit�	
+-------------------------------------------------------------------------------
+VBA FORM Variable "b'lblProgressBack'" IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+None
+-------------------------------------------------------------------------------
+VBA FORM Variable "b'lblProgressBar'" IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+None
+-------------------------------------------------------------------------------
+VBA FORM Variable "b'lblStatus'" IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+None
+-------------------------------------------------------------------------------
+VBA FORM Variable "b'cmdStart'" IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+None
+-------------------------------------------------------------------------------
+VBA FORM Variable "b'cmdRefresh'" IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+None
+-------------------------------------------------------------------------------
+VBA FORM Variable "b'lblProgress'" IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+None
+-------------------------------------------------------------------------------
+VBA FORM Variable "b'cmdExit'" IN 'xl/vbaProject.bin' - OLE stream: 'ProgressForm'
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+None
++----------+--------------------+---------------------------------------------+
+|Type      |Keyword             |Description                                  |
++----------+--------------------+---------------------------------------------+
+|AutoExec  |Workbook_Open       |Runs when the Excel Workbook is opened       |
+|AutoExec  |cmdExit_Click       |Runs when the file is opened and ActiveX     |
+|          |                    |objects trigger events                       |
+|Suspicious|open                |May open a file                              |
+|Suspicious|Write               |May write to a file (if combined with Open)  |
+|Suspicious|put                 |May write to a file (if combined with Open)  |
+|Suspicious|Create              |May execute file or a system command through |
+|          |                    |WMI                                          |
+|Suspicious|Call                |May call a DLL using Excel 4 Macros (XLM/XLF)|
+|Suspicious|CreateObject        |May create an OLE object                     |
+|Suspicious|Lib                 |May run code from a DLL                      |
+|Suspicious|Hex Strings         |Hex-encoded strings were detected, may be    |
+|          |                    |used to obfuscate strings (option --decode to|
+|          |                    |see all)                                     |
+|Suspicious|Base64 Strings      |Base64-encoded strings were detected, may be |
+|          |                    |used to obfuscate strings (option --decode to|
+|          |                    |see all)                                     |
+|Suspicious|VBA Stomping        |VBA Stomping was detected: the VBA source    |
+|          |                    |code and P-code are different, this may have |
+|          |                    |been used to hide malicious code             |
++----------+--------------------+---------------------------------------------+
+VBA Stomping detection is experimental: please report any false positive/negative at https://github.com/decalage2/oletools/issues
+

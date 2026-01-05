@@ -208,7 +208,7 @@ public class ProcessHMLRResponse
             throw new InvalidOperationException("No Excel attachment path available");
         }
 
-        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var containerClient = _blobClient.GetBlobContainerClient(HMLRMailboxConfig.PendingEmailsContainer);
         var blobClient = containerClient.GetBlobClient(email.TempBlobPath);
 
         using var stream = new MemoryStream();
@@ -279,7 +279,7 @@ public class ProcessHMLRResponse
             return titleDeeds;
         }
 
-        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var containerClient = _blobClient.GetBlobContainerClient(HMLRMailboxConfig.PendingEmailsContainer);
         var blobClient = containerClient.GetBlobClient(email.TempBlobPath);
 
         using var zipStream = new MemoryStream();
@@ -405,7 +405,7 @@ public class ProcessHMLRResponse
     /// </summary>
     private async Task StoreProcessingResult(HMLRProcessingResult result, HMLRResponsePair pair)
     {
-        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var containerClient = _blobClient.GetBlobContainerClient(HMLRMailboxConfig.PendingEmailsContainer);
         var resultPath = $"results/{pair.ExcelEmail.EmailId}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json";
         var blobClient = containerClient.GetBlobClient(resultPath);
 
@@ -421,7 +421,7 @@ public class ProcessHMLRResponse
     /// </summary>
     private async Task CleanupPendingEmails(HMLRResponsePair pair)
     {
-        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var containerClient = _blobClient.GetBlobContainerClient(HMLRMailboxConfig.PendingEmailsContainer);
 
         // Delete Excel email folder
         await DeleteBlobFolder(containerClient, pair.ExcelEmail.EmailId);

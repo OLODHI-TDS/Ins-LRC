@@ -102,7 +102,7 @@ public class NotifyComplianceTeam
             await SendNotificationEmail(result);
 
             // Clean up the result blob after notification
-            var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+            var containerClient = _blobClient.GetBlobContainerClient(HMLRMailboxConfig.PendingEmailsContainer);
             var blobClient = containerClient.GetBlobClient($"results/{name}");
             await blobClient.DeleteIfExistsAsync();
 
