@@ -78,7 +78,7 @@ az deployment group create \
 ## Documentation
 
 - [CLAUDE.md](CLAUDE.md) - Full project context and architecture
-- [Development Plan](docs/DEVELOPMENT_PLAN.md) - Tasks and estimates
+- [Development Plan](DEVELOPMENT_PLAN.md) - Tasks and estimates
 
 ## Contacts
 
