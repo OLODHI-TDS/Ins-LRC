@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Needs_Letter__c</fullName>
-    <description>Flagged for compliance letter to landlord</description>
     <defaultValue>false</defaultValue>
+    <description>Flagged for compliance letter to landlord</description>
     <externalId>false</externalId>
     <label>Needs Letter</label>
     <trackHistory>true</trackHistory>
