@@ -1,0 +1,450 @@
+using System.IO.Compression;
+using System.Text.Json;
+using ClosedXML.Excel;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Logging;
+using Azure.Storage.Blobs;
+using LandRegFunctions.Models;
+
+namespace LandRegFunctions.Functions;
+
+/// <summary>
+/// Processes paired HMLR response emails (Excel results + ZIP of title deeds)
+/// </summary>
+public class ProcessHMLRResponse
+{
+    private readonly ILogger<ProcessHMLRResponse> _logger;
+    private readonly BlobServiceClient _blobClient;
+
+    // HMLR Excel column mappings (0-based index)
+    private const int ColCustomerRef = 0;
+    private const int ColForename = 1;
+    private const int ColSurname = 2;
+    private const int ColCompanyName = 3;
+    private const int ColAddress1 = 4;
+    private const int ColAddress2 = 5;
+    private const int ColAddress3 = 6;
+    private const int ColAddress4 = 7;
+    private const int ColAddress5 = 8;
+    private const int ColPostcode = 9;
+    private const int ColAddressMatchResult = 10;
+    private const int ColTitleNumber = 11;
+    private const int ColNameMatchResult = 12;
+
+    public ProcessHMLRResponse(
+        ILogger<ProcessHMLRResponse> logger,
+        BlobServiceClient blobClient)
+    {
+        _logger = logger;
+        _blobClient = blobClient;
+    }
+
+    /// <summary>
+    /// Process a paired HMLR response (triggered by CheckHMLRInbox when pair is found)
+    /// </summary>
+    [Function("ProcessHMLRResponse")]
+    public async Task<HttpResponseData> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequestData req)
+    {
+        _logger.LogInformation("ProcessHMLRResponse function started at: {Time}", DateTime.UtcNow);
+
+        try
+        {
+            // Read the pair info from request body
+            var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            var pair = JsonSerializer.Deserialize<HMLRResponsePair>(requestBody);
+
+            if (pair == null)
+            {
+                _logger.LogError("Invalid request body - could not deserialize pair");
+                var badResponse = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+                await badResponse.WriteAsJsonAsync(new { Error = "Invalid request body" });
+                return badResponse;
+            }
+
+            // Process the response
+            var result = await ProcessResponsePair(pair);
+
+            // Clean up pending emails
+            await CleanupPendingEmails(pair);
+
+            var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+            await response.WriteAsJsonAsync(result);
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing HMLR response");
+            var errorResponse = req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
+            await errorResponse.WriteAsJsonAsync(new { Error = ex.Message });
+            return errorResponse;
+        }
+    }
+
+    /// <summary>
+    /// Blob-triggered processor for paired emails stored in blob
+    /// </summary>
+    [Function("ProcessHMLRResponseFromBlob")]
+    public async Task RunFromBlob(
+        [BlobTrigger("pending-hmlr-emails/pairs/{name}", Connection = "AzureWebJobsStorage")]
+        Stream blobStream,
+        string name)
+    {
+        _logger.LogInformation("Processing paired HMLR response from blob: {Name}", name);
+
+        try
+        {
+            using var reader = new StreamReader(blobStream);
+            var json = await reader.ReadToEndAsync();
+            var pair = JsonSerializer.Deserialize<HMLRResponsePair>(json);
+
+            if (pair == null)
+            {
+                _logger.LogError("Invalid pair data in blob: {Name}", name);
+                return;
+            }
+
+            var result = await ProcessResponsePair(pair);
+
+            _logger.LogInformation(
+                "Processed HMLR response: {Total} total, {Matched} matched, {UnderReview} under review, {NoMatch} no match",
+                result.TotalRows, result.MatchedRecords, result.UnderReviewRecords, result.NoMatchRecords);
+
+            // Clean up
+            await CleanupPendingEmails(pair);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing HMLR response from blob {Name}", name);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Process a paired response - Excel results + ZIP of PDFs
+    /// </summary>
+    private async Task<HMLRProcessingResult> ProcessResponsePair(HMLRResponsePair pair)
+    {
+        var result = new HMLRProcessingResult
+        {
+            EmailReceivedAt = pair.ExcelEmail.ReceivedDateTime
+        };
+
+        try
+        {
+            // 1. Download and parse the Excel attachment
+            var excelRows = await ParseExcelAttachment(pair.ExcelEmail);
+            result.TotalRows = excelRows.Count;
+
+            _logger.LogInformation("Parsed {Count} rows from Excel", excelRows.Count);
+
+            // 2. Download and extract the ZIP attachment
+            var titleDeeds = await ExtractZipAttachment(pair.ZipEmail);
+            _logger.LogInformation("Extracted {Count} title deed PDFs from ZIP", titleDeeds.Count);
+
+            // 3. Process each row and match to Salesforce records
+            var updates = new List<SalesforceRecordUpdate>();
+
+            foreach (var row in excelRows)
+            {
+                try
+                {
+                    var update = ProcessRow(row, titleDeeds, pair.ExcelEmail.ReceivedDateTime);
+                    updates.Add(update);
+
+                    // Count by status
+                    switch (update.Status)
+                    {
+                        case "Matched":
+                            result.MatchedRecords++;
+                            break;
+                        case "Under Review":
+                            result.UnderReviewRecords++;
+                            break;
+                        case "No Match":
+                            result.NoMatchRecords++;
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error processing row for CustomerRef: {Ref}", row.CustomerRef);
+                    result.Errors.Add($"Row {row.CustomerRef}: {ex.Message}");
+                    result.SkippedRows++;
+                }
+            }
+
+            // 4. Upload title deeds to permanent blob storage
+            await StoreTitleDeeds(titleDeeds, updates);
+
+            // 5. Update Salesforce records
+            await UpdateSalesforceRecords(updates);
+
+            // 6. Store processing result for notification
+            await StoreProcessingResult(result, pair);
+
+            result.Success = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to process HMLR response pair");
+            result.Success = false;
+            result.ErrorMessage = ex.Message;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Parse the Excel attachment from the email
+    /// </summary>
+    private async Task<List<HMLRResponseRow>> ParseExcelAttachment(PendingHMLREmail email)
+    {
+        var rows = new List<HMLRResponseRow>();
+
+        if (string.IsNullOrEmpty(email.TempBlobPath))
+        {
+            throw new InvalidOperationException("No Excel attachment path available");
+        }
+
+        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var blobClient = containerClient.GetBlobClient(email.TempBlobPath);
+
+        using var stream = new MemoryStream();
+        await blobClient.DownloadToAsync(stream);
+        stream.Position = 0;
+
+        // Handle RPMSG files - for now, log warning as we need to implement decryption
+        if (email.AttachmentName?.ToLowerInvariant().EndsWith(".rpmsg") == true)
+        {
+            _logger.LogWarning("RPMSG file detected - decryption not yet implemented. " +
+                "Manual extraction may be required for: {Path}", email.TempBlobPath);
+            // TODO: Implement RPMSG decryption using Graph API or other method
+            throw new NotImplementedException("RPMSG decryption not yet implemented");
+        }
+
+        // Parse Excel file
+        using var workbook = new XLWorkbook(stream);
+        var worksheet = workbook.Worksheets.First();
+
+        // Skip header row, start from row 2
+        var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        for (int rowNum = 2; rowNum <= lastRow; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+
+            // Skip empty rows
+            if (row.IsEmpty())
+                continue;
+
+            var responseRow = new HMLRResponseRow
+            {
+                CustomerRef = row.Cell(ColCustomerRef + 1).GetString().Trim(),
+                Forename = row.Cell(ColForename + 1).GetString().Trim(),
+                Surname = row.Cell(ColSurname + 1).GetString().Trim(),
+                CompanyName = row.Cell(ColCompanyName + 1).GetString().Trim(),
+                Address1 = row.Cell(ColAddress1 + 1).GetString().Trim(),
+                Address2 = row.Cell(ColAddress2 + 1).GetString().Trim(),
+                Address3 = row.Cell(ColAddress3 + 1).GetString().Trim(),
+                Address4 = row.Cell(ColAddress4 + 1).GetString().Trim(),
+                Address5 = row.Cell(ColAddress5 + 1).GetString().Trim(),
+                Postcode = row.Cell(ColPostcode + 1).GetString().Trim(),
+                AddressMatchResult = row.Cell(ColAddressMatchResult + 1).GetString().Trim(),
+                TitleNumber = row.Cell(ColTitleNumber + 1).GetString().Trim(),
+                NameMatchResult = row.Cell(ColNameMatchResult + 1).GetString().Trim()
+            };
+
+            // Only add rows with a customer reference
+            if (!string.IsNullOrEmpty(responseRow.CustomerRef))
+            {
+                rows.Add(responseRow);
+            }
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Extract title deed PDFs from the ZIP attachment
+    /// </summary>
+    private async Task<Dictionary<string, byte[]>> ExtractZipAttachment(PendingHMLREmail email)
+    {
+        var titleDeeds = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrEmpty(email.TempBlobPath))
+        {
+            _logger.LogWarning("No ZIP attachment path available");
+            return titleDeeds;
+        }
+
+        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var blobClient = containerClient.GetBlobClient(email.TempBlobPath);
+
+        using var zipStream = new MemoryStream();
+        await blobClient.DownloadToAsync(zipStream);
+        zipStream.Position = 0;
+
+        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+
+        foreach (var entry in archive.Entries)
+        {
+            // Skip directories
+            if (string.IsNullOrEmpty(entry.Name))
+                continue;
+
+            // Only process PDF files
+            if (!entry.Name.ToLowerInvariant().EndsWith(".pdf"))
+                continue;
+
+            // Extract title number from filename (e.g., "WK238552.pdf" -> "WK238552")
+            var titleNumber = Path.GetFileNameWithoutExtension(entry.Name);
+
+            using var entryStream = entry.Open();
+            using var memoryStream = new MemoryStream();
+            await entryStream.CopyToAsync(memoryStream);
+
+            titleDeeds[titleNumber] = memoryStream.ToArray();
+            _logger.LogInformation("Extracted title deed: {TitleNumber}", titleNumber);
+        }
+
+        return titleDeeds;
+    }
+
+    /// <summary>
+    /// Process a single row and create a Salesforce update
+    /// </summary>
+    private SalesforceRecordUpdate ProcessRow(
+        HMLRResponseRow row,
+        Dictionary<string, byte[]> titleDeeds,
+        DateTime emailReceivedAt)
+    {
+        var update = new SalesforceRecordUpdate
+        {
+            // RecordId will be populated when we query Salesforce
+            Status = row.GetSalesforceStatus(),
+            MatchType = row.GetMatchType(),
+            TitleNumber = row.TitleNumber,
+            HMLRResponseDate = emailReceivedAt
+        };
+
+        // Check if we have a title deed for this record
+        if (!string.IsNullOrEmpty(row.TitleNumber) &&
+            titleDeeds.ContainsKey(row.TitleNumber))
+        {
+            // Title deed path will be set after upload
+            _logger.LogInformation(
+                "Title deed available for {CustomerRef}: {TitleNumber}",
+                row.CustomerRef, row.TitleNumber);
+        }
+
+        return update;
+    }
+
+    /// <summary>
+    /// Store title deeds in permanent blob storage
+    /// </summary>
+    private async Task StoreTitleDeeds(
+        Dictionary<string, byte[]> titleDeeds,
+        List<SalesforceRecordUpdate> updates)
+    {
+        var containerClient = _blobClient.GetBlobContainerClient("title-deeds");
+        await containerClient.CreateIfNotExistsAsync();
+
+        foreach (var (titleNumber, content) in titleDeeds)
+        {
+            // Find the update that matches this title number
+            var matchingUpdate = updates.FirstOrDefault(u =>
+                u.TitleNumber?.Equals(titleNumber, StringComparison.OrdinalIgnoreCase) == true);
+
+            if (matchingUpdate == null)
+            {
+                _logger.LogWarning("No matching record for title deed: {TitleNumber}", titleNumber);
+                continue;
+            }
+
+            // Store with path: {title-number}/{title-number}.pdf
+            // This allows easy retrieval by title number
+            var blobPath = $"{titleNumber}/{titleNumber}.pdf";
+            var blobClient = containerClient.GetBlobClient(blobPath);
+
+            using var stream = new MemoryStream(content);
+            await blobClient.UploadAsync(stream, overwrite: true);
+
+            matchingUpdate.TitleDeedBlobPath = blobPath;
+            _logger.LogInformation("Stored title deed at: {Path}", blobPath);
+        }
+    }
+
+    /// <summary>
+    /// Update Salesforce records with the processing results
+    /// </summary>
+    private async Task UpdateSalesforceRecords(List<SalesforceRecordUpdate> updates)
+    {
+        // TODO: Implement Salesforce API call to update records
+        // For now, just log the updates that would be made
+        _logger.LogInformation("Would update {Count} Salesforce records:", updates.Count);
+
+        foreach (var update in updates)
+        {
+            _logger.LogInformation(
+                "  - Status: {Status}, MatchType: {MatchType}, TitleNumber: {TitleNumber}",
+                update.Status, update.MatchType, update.TitleNumber);
+        }
+
+        // The actual Salesforce integration will query records by:
+        // - Landlord_ID__c (CustomerRef from Excel)
+        // - Property_Postcode__c (from Excel)
+        // - Batch__c (most recent batch with status "Submitted to HMLR")
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Store processing result for notification function
+    /// </summary>
+    private async Task StoreProcessingResult(HMLRProcessingResult result, HMLRResponsePair pair)
+    {
+        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+        var resultPath = $"results/{pair.ExcelEmail.EmailId}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.json";
+        var blobClient = containerClient.GetBlobClient(resultPath);
+
+        var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json));
+        await blobClient.UploadAsync(stream, overwrite: true);
+
+        _logger.LogInformation("Stored processing result at: {Path}", resultPath);
+    }
+
+    /// <summary>
+    /// Clean up pending email blobs after processing
+    /// </summary>
+    private async Task CleanupPendingEmails(HMLRResponsePair pair)
+    {
+        var containerClient = _blobClient.GetBlobContainerClient(MailboxSettings.PendingEmailsContainer);
+
+        // Delete Excel email folder
+        await DeleteBlobFolder(containerClient, pair.ExcelEmail.EmailId);
+
+        // Delete ZIP email folder
+        await DeleteBlobFolder(containerClient, pair.ZipEmail.EmailId);
+
+        // Delete the pair file
+        var pairPath = $"pairs/{pair.ExcelEmail.EmailId}_{pair.ZipEmail.EmailId}.json";
+        var pairBlob = containerClient.GetBlobClient(pairPath);
+        await pairBlob.DeleteIfExistsAsync();
+
+        _logger.LogInformation("Cleaned up pending emails for pair");
+    }
+
+    /// <summary>
+    /// Delete all blobs in a folder
+    /// </summary>
+    private async Task DeleteBlobFolder(BlobContainerClient container, string prefix)
+    {
+        await foreach (var blob in container.GetBlobsAsync(prefix: prefix))
+        {
+            await container.GetBlobClient(blob.Name).DeleteIfExistsAsync();
+        }
+    }
+}
