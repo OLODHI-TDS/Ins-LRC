@@ -182,10 +182,11 @@ public class ProcessHMLRResponse
             // 5. Update Salesforce records
             await UpdateSalesforceRecords(updates);
 
+            // Mark as successful before storing result for notification
+            result.Success = true;
+
             // 6. Store processing result for notification
             await StoreProcessingResult(result, pair);
-
-            result.Success = true;
         }
         catch (Exception ex)
         {
