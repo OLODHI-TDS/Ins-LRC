@@ -122,13 +122,11 @@ public class CheckHMLRInbox
 
         try
         {
-            // Build filter for unread emails from HMLR
-            var senderFilters = string.Join(" or ",
-                HMLRMailboxConfig.HMLRSenderAddresses.Select(addr => $"from/emailAddress/address eq '{addr}'"));
-            var filter = $"isRead eq false and ({senderFilters})";
+            // Simple filter for unread emails only - we'll filter by sender in code
+            var filter = "isRead eq false";
 
-            _logger.LogInformation("Querying mailbox {Mailbox} with filter: {Filter}",
-                _mailboxConfig.MailboxAddress, filter);
+            _logger.LogInformation("Querying mailbox {Mailbox} for unread emails",
+                _mailboxConfig.MailboxAddress);
 
             // Query the mailbox
             var messages = await _graphClient.Users[_mailboxConfig.MailboxAddress]
@@ -144,8 +142,24 @@ public class CheckHMLRInbox
 
             if (messages?.Value != null)
             {
-                emails.AddRange(messages.Value);
+                // Filter by HMLR sender addresses in code
+                var hmlrSenders = HMLRMailboxConfig.HMLRSenderAddresses
+                    .Select(s => s.ToLowerInvariant())
+                    .ToHashSet();
+
+                foreach (var msg in messages.Value)
+                {
+                    var senderAddress = msg.From?.EmailAddress?.Address?.ToLowerInvariant() ?? "";
+                    if (hmlrSenders.Contains(senderAddress))
+                    {
+                        emails.Add(msg);
+                        _logger.LogInformation("Found HMLR email from {Sender}: {Subject}",
+                            senderAddress, msg.Subject);
+                    }
+                }
             }
+
+            _logger.LogInformation("Found {Count} HMLR emails out of unread messages", emails.Count);
         }
         catch (Exception ex)
         {
