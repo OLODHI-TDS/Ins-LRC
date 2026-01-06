@@ -145,4 +145,9 @@ public class SalesforceRecordUpdate
     /// When HMLR response was received
     /// </summary>
     public DateTime HMLRResponseDate { get; set; }
+
+    /// <summary>
+    /// Proprietor name extracted from title deed PDF
+    /// </summary>
+    public string? TitleDeedProprietorName { get; set; }
 }

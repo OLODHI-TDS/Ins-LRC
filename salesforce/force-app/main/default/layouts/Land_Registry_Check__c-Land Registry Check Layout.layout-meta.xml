@@ -107,6 +107,10 @@
                 <behavior>Edit</behavior>
                 <field>Title_Deed_URL__c</field>
             </layoutItems>
+            <layoutItems>
+                <behavior>Edit</behavior>
+                <field>Title_Deed_Proprietor_Name__c</field>
+            </layoutItems>
         </layoutColumns>
         <layoutColumns>
             <layoutItems>

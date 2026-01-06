@@ -64,6 +64,9 @@ var host = new HostBuilder()
         // Register HttpClient and Salesforce service
         // AddHttpClient registers the service as transient by default
         services.AddHttpClient<SalesforceService>();
+
+        // Register TitleDeedParser for extracting proprietor names from PDFs
+        services.AddSingleton<TitleDeedParser>();
     })
     .Build();
 

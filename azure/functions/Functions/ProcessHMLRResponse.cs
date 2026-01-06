@@ -19,6 +19,7 @@ public class ProcessHMLRResponse
     private readonly ILogger<ProcessHMLRResponse> _logger;
     private readonly BlobServiceClient _blobClient;
     private readonly SalesforceService _salesforceService;
+    private readonly TitleDeedParser _titleDeedParser;
 
     // HMLR Excel column mappings (0-based index)
     private const int ColCustomerRef = 0;
@@ -47,11 +48,13 @@ public class ProcessHMLRResponse
     public ProcessHMLRResponse(
         ILogger<ProcessHMLRResponse> logger,
         BlobServiceClient blobClient,
-        SalesforceService salesforceService)
+        SalesforceService salesforceService,
+        TitleDeedParser titleDeedParser)
     {
         _logger = logger;
         _blobClient = blobClient;
         _salesforceService = salesforceService;
+        _titleDeedParser = titleDeedParser;
     }
 
     /// <summary>
@@ -399,6 +402,15 @@ public class ProcessHMLRResponse
             }
             matchingUpdate.TitleDeedUrl = titleDeedUrl;
 
+            // Extract proprietor name from PDF
+            var proprietorName = _titleDeedParser.ExtractProprietorName(content, titleNumber);
+            if (!string.IsNullOrWhiteSpace(proprietorName))
+            {
+                matchingUpdate.TitleDeedProprietorName = proprietorName;
+                _logger.LogInformation("Extracted proprietor for {TitleNumber}: {Proprietor}",
+                    titleNumber, proprietorName);
+            }
+
             _logger.LogInformation("Stored title deed at: {Path}, URL: {Url}",
                 blobPath, matchingUpdate.TitleDeedUrl);
         }
@@ -499,7 +511,8 @@ public class ProcessHMLRResponse
                 MatchType = update.MatchType,
                 TitleNumber = update.TitleNumber,
                 TitleDeedUrl = update.TitleDeedUrl,
-                HMLRResponseDate = update.HMLRResponseDate
+                HMLRResponseDate = update.HMLRResponseDate,
+                TitleDeedProprietorName = update.TitleDeedProprietorName
             };
 
             bulkUpdates.Add((matchedRecord.Id!, updatePayload));

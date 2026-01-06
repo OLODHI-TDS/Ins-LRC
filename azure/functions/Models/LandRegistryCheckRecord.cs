@@ -65,4 +65,8 @@ public class LandRegistryCheckUpdate
     [JsonPropertyName("HMLR_Response_Date__c")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? HMLRResponseDate { get; set; }
+
+    [JsonPropertyName("Title_Deed_Proprietor_Name__c")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TitleDeedProprietorName { get; set; }
 }
