@@ -1,0 +1,159 @@
+<template>
+    <!-- Main Action Card -->
+    <lightning-card title="Review Actions" icon-name="utility:checklist">
+        <div class="slds-p-around_medium">
+            <!-- Loading State -->
+            <template if:true={isLoading}>
+                <div class="slds-align_absolute-center slds-p-around_medium">
+                    <lightning-spinner alternative-text="Loading" size="small"></lightning-spinner>
+                </div>
+            </template>
+
+            <!-- Action Buttons -->
+            <template if:false={isLoading}>
+                <div class="slds-button-group-row">
+                    <!-- View Title Deed Button (only show if URL exists) -->
+                    <template if:true={hasTitleDeed}>
+                        <lightning-button
+                            label="View Title Deed"
+                            variant="neutral"
+                            icon-name="utility:preview"
+                            onclick={handleViewPdf}
+                            class="slds-m-right_x-small slds-m-bottom_x-small">
+                        </lightning-button>
+                    </template>
+
+                    <!-- Mark Verified Button -->
+                    <lightning-button
+                        label={markVerifiedLabel}
+                        variant="success"
+                        icon-name="utility:check"
+                        disabled={disableMarkVerified}
+                        onclick={handleMarkVerified}
+                        class="slds-m-right_x-small slds-m-bottom_x-small">
+                    </lightning-button>
+
+                    <!-- Flag for Letter Button -->
+                    <lightning-button
+                        label={flagForLetterLabel}
+                        variant="neutral"
+                        icon-name="utility:warning"
+                        disabled={disableFlagForLetter}
+                        onclick={handleFlagForLetter}
+                        class="slds-m-right_x-small slds-m-bottom_x-small">
+                    </lightning-button>
+
+                    <!-- Add Notes Button -->
+                    <lightning-button
+                        label="Add Notes"
+                        variant="neutral"
+                        icon-name="utility:note"
+                        onclick={handleOpenNotesModal}
+                        class="slds-m-right_x-small slds-m-bottom_x-small">
+                    </lightning-button>
+
+                    <!-- Close Record Button -->
+                    <lightning-button
+                        label={closeRecordLabel}
+                        variant="destructive"
+                        icon-name="utility:close"
+                        disabled={disableClose}
+                        onclick={handleCloseRecord}
+                        class="slds-m-bottom_x-small">
+                    </lightning-button>
+                </div>
+
+                <!-- Status Info -->
+                <template if:true={recordData}>
+                    <div class="slds-m-top_medium slds-text-body_small slds-text-color_weak">
+                        <p>Status: <strong>{recordData.status}</strong></p>
+                        <template if:true={recordData.needsLetter}>
+                            <p class="slds-text-color_error">
+                                <lightning-icon icon-name="utility:warning" size="xx-small" class="slds-m-right_xx-small"></lightning-icon>
+                                Flagged for compliance letter
+                            </p>
+                        </template>
+                    </div>
+                </template>
+            </template>
+        </div>
+    </lightning-card>
+
+    <!-- PDF Viewer Modal -->
+    <template if:true={showPdfModal}>
+        <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="pdf-modal-heading"
+                 class="slds-modal slds-fade-in-open slds-modal_large">
+            <div class="slds-modal__container">
+                <!-- Modal Header -->
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                            onclick={closePdfModal}>
+                        <lightning-icon icon-name="utility:close" size="small" variant="inverse"></lightning-icon>
+                        <span class="slds-assistive-text">Close</span>
+                    </button>
+                    <h2 id="pdf-modal-heading" class="slds-modal__title slds-hyphenate">
+                        Title Deed - {recordData.titleNumber}
+                    </h2>
+                </header>
+
+                <!-- Modal Content - PDF Iframe -->
+                <div class="slds-modal__content pdf-container">
+                    <iframe src={recordData.titleDeedUrl} class="pdf-frame" title="Title Deed PDF"></iframe>
+                </div>
+
+                <!-- Modal Footer -->
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Close" onclick={closePdfModal}></lightning-button>
+                    <lightning-button label="Open in New Tab" variant="brand" onclick={handleOpenInNewTab}
+                                      class="slds-m-left_x-small"></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <!-- Notes Modal -->
+    <template if:true={showNotesModal}>
+        <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="notes-modal-heading"
+                 class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <!-- Modal Header -->
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                            onclick={closeNotesModal}>
+                        <lightning-icon icon-name="utility:close" size="small" variant="inverse"></lightning-icon>
+                        <span class="slds-assistive-text">Close</span>
+                    </button>
+                    <h2 id="notes-modal-heading" class="slds-modal__title slds-hyphenate">
+                        Review Notes
+                    </h2>
+                </header>
+
+                <!-- Modal Content -->
+                <div class="slds-modal__content slds-p-around_medium">
+                    <lightning-textarea
+                        name="notes"
+                        label="Notes"
+                        value={notesValue}
+                        onchange={handleNotesChange}
+                        max-length="32768"
+                        placeholder="Enter your review notes here..."
+                        class="notes-textarea">
+                    </lightning-textarea>
+                    <p class="slds-text-body_small slds-text-color_weak slds-m-top_small">
+                        Your name and timestamp will be recorded when you save.
+                    </p>
+                </div>
+
+                <!-- Modal Footer -->
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Cancel" onclick={closeNotesModal}
+                                      disabled={isSavingNotes}></lightning-button>
+                    <lightning-button label={saveNotesLabel} variant="brand" onclick={handleSaveNotes}
+                                      disabled={isSavingNotes} class="slds-m-left_x-small"></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+</template>

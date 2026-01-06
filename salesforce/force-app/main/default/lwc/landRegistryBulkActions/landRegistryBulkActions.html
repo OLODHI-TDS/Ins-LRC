@@ -1,0 +1,157 @@
+<template>
+    <!-- Main Container -->
+    <div class="slds-p-around_medium">
+        <!-- Loading State -->
+        <template if:true={isLoading}>
+            <div class="slds-align_absolute-center slds-p-around_large">
+                <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+            </div>
+        </template>
+
+        <!-- No Records Selected -->
+        <template if:true={noRecordsSelected}>
+            <div class="slds-illustration slds-illustration_small">
+                <div class="slds-text-longform">
+                    <h3 class="slds-text-heading_medium">No Records Selected</h3>
+                    <p class="slds-text-body_regular">Please select records from the list view first.</p>
+                </div>
+            </div>
+        </template>
+
+        <!-- Main Content -->
+        <template if:false={isLoading}>
+            <template if:false={noRecordsSelected}>
+                <template if:false={showResults}>
+                    <!-- Action Selection -->
+                    <div class="slds-m-bottom_medium">
+                        <h2 class="slds-text-heading_medium slds-m-bottom_small">Bulk Action</h2>
+                        <p class="slds-text-body_regular">
+                            <strong>{recordCount}</strong> records selected
+                        </p>
+                    </div>
+
+                    <!-- Action Type Selection -->
+                    <div class="slds-m-bottom_medium">
+                        <lightning-radio-group
+                            name="actionType"
+                            label="Select Action"
+                            options={actionOptions}
+                            value={selectedAction}
+                            onchange={handleActionChange}
+                            required>
+                        </lightning-radio-group>
+                    </div>
+
+                    <!-- Status Picker (only for Update Status action) -->
+                    <template if:true={showStatusPicker}>
+                        <div class="slds-m-bottom_medium">
+                            <lightning-combobox
+                                name="status"
+                                label="New Status"
+                                value={selectedStatus}
+                                options={statusOptions}
+                                onchange={handleStatusChange}
+                                placeholder="Select a status..."
+                                required>
+                            </lightning-combobox>
+                        </div>
+                    </template>
+
+                    <!-- Confirmation Box -->
+                    <template if:true={selectedAction}>
+                        <div class="slds-box slds-theme_shade slds-m-bottom_medium">
+                            <p class="slds-text-body_regular">
+                                <lightning-icon icon-name="utility:info" size="x-small" class="slds-m-right_x-small"></lightning-icon>
+                                {confirmationMessage}
+                            </p>
+                        </div>
+                    </template>
+
+                    <!-- Action Buttons -->
+                    <div class="slds-m-top_medium">
+                        <lightning-button
+                            label="Cancel"
+                            onclick={handleCancel}
+                            disabled={isProcessing}
+                            class="slds-m-right_x-small">
+                        </lightning-button>
+                        <lightning-button
+                            label={submitButtonLabel}
+                            variant="brand"
+                            onclick={handleSubmit}
+                            disabled={disableSubmit}>
+                        </lightning-button>
+                    </div>
+                </template>
+
+                <!-- Results Display -->
+                <template if:true={showResults}>
+                    <div class="slds-m-bottom_medium">
+                        <h2 class="slds-text-heading_medium slds-m-bottom_small">Results</h2>
+
+                        <!-- Success Message -->
+                        <template if:true={result.success}>
+                            <div class="slds-box slds-theme_success slds-m-bottom_small">
+                                <p>
+                                    <lightning-icon icon-name="utility:success" size="x-small" variant="inverse" class="slds-m-right_x-small"></lightning-icon>
+                                    {result.message}
+                                </p>
+                            </div>
+                        </template>
+
+                        <!-- Partial Success / Error Message -->
+                        <template if:false={result.success}>
+                            <div class="slds-box slds-theme_warning slds-m-bottom_small">
+                                <p>
+                                    <lightning-icon icon-name="utility:warning" size="x-small" class="slds-m-right_x-small"></lightning-icon>
+                                    {result.message}
+                                </p>
+                            </div>
+                        </template>
+
+                        <!-- Statistics -->
+                        <div class="slds-grid slds-wrap slds-m-bottom_medium">
+                            <div class="slds-col slds-size_1-of-3 slds-p-around_x-small">
+                                <div class="stat-box stat-success">
+                                    <p class="stat-value">{result.successCount}</p>
+                                    <p class="stat-label">Updated</p>
+                                </div>
+                            </div>
+                            <div class="slds-col slds-size_1-of-3 slds-p-around_x-small">
+                                <div class="stat-box stat-skipped">
+                                    <p class="stat-value">{result.skippedCount}</p>
+                                    <p class="stat-label">Skipped</p>
+                                </div>
+                            </div>
+                            <div class="slds-col slds-size_1-of-3 slds-p-around_x-small">
+                                <div class="stat-box stat-error">
+                                    <p class="stat-value">{result.errorCount}</p>
+                                    <p class="stat-label">Errors</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Error Details -->
+                        <template if:true={hasErrors}>
+                            <div class="slds-m-bottom_medium">
+                                <h3 class="slds-text-title_caps slds-m-bottom_x-small">Error Details</h3>
+                                <ul class="slds-list_dotted">
+                                    <template for:each={result.errors} for:item="error">
+                                        <li key={error} class="slds-text-color_error">{error}</li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </template>
+
+                        <!-- Done Button -->
+                        <lightning-button
+                            label="Done"
+                            variant="brand"
+                            onclick={handleDone}>
+                        </lightning-button>
+                    </div>
+                </template>
+            </template>
+        </template>
+    </div>
+</template>

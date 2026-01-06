@@ -1,0 +1,37 @@
+/* PDF Modal - Large size for viewing title deeds */
+.slds-modal_large .slds-modal__container {
+    max-width: 90%;
+    width: 90%;
+    max-height: 90vh;
+}
+
+.pdf-container {
+    height: 70vh;
+    padding: 0;
+    overflow: hidden;
+}
+
+.pdf-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+/* Notes textarea */
+.notes-textarea {
+    min-height: 200px;
+}
+
+/* Action button spacing */
+.slds-button-group-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+/* Warning text for flagged records */
+.slds-text-color_error {
+    display: flex;
+    align-items: center;
+    margin-top: 0.25rem;
+}

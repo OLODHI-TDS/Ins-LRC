@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>59.0</apiVersion>
+    <isExposed>true</isExposed>
+    <targets>
+        <target>lightning__FlowScreen</target>
+    </targets>
+    <targetConfigs>
+        <targetConfig targets="lightning__FlowScreen">
+            <property name="recordIds" type="String[]" label="Record IDs" description="Selected record IDs from list view"/>
+        </targetConfig>
+    </targetConfigs>
+    <masterLabel>Land Registry Bulk Actions</masterLabel>
+    <description>Bulk action component for Land Registry Check records. Supports Flag for Letter, Close Records, and Update Status actions.</description>
+</LightningComponentBundle>
