@@ -11,20 +11,45 @@ public class TitleDeedParser
 {
     private readonly ILogger<TitleDeedParser> _logger;
 
-    // Regex to find PROPRIETOR entry - captures everything after "PROPRIETOR:" until end of sentence
+    // Regex to find PROPRIETOR entry
     private static readonly Regex ProprietorRegex = new(
         @"PROPRIETOR:\s*(.+?)(?=\s*\d{1,2}\s+\(|\s*End of register|\s*C:\s*Charges Register|$)",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
-
-    // Regex to extract name from proprietor text (handles "NAME of ADDRESS" pattern)
-    private static readonly Regex NameOfAddressRegex = new(
-        @"^(.+?)\s+of\s+\d",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // Regex to strip company registration details
     private static readonly Regex CompanyRegRegex = new(
         @"\s*\([^)]*(?:Co\.|Regn|incorporated|OE ID|UK Regn)[^)]*\)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // UK Postcode pattern (used to detect addresses)
+    private static readonly Regex UKPostcodeRegex = new(
+        @"[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Pattern for "care of" which always indicates address follows
+    private static readonly Regex CareOfRegex = new(
+        @"\s+care\s*of\s+",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Common address/location keywords that indicate start of address
+    private static readonly HashSet<string> AddressKeywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Building types
+        "house", "farm", "building", "court", "lodge", "hall", "place", "gardens",
+        "park", "mansion", "mansions", "tower", "towers", "apartments", "villas",
+        "chambers", "cottage", "cottages", "villa", "grange", "manor", "castle",
+        "centre", "center", "office", "offices", "suite", "unit", "flat", "flats",
+        // Street types
+        "road", "street", "avenue", "lane", "drive", "close", "way", "crescent",
+        "grove", "terrace", "square", "mews", "row", "walk", "rise",
+        "hill", "green", "meadow", "fields", "view", "parade", "circus", "yard",
+        // Major UK cities and areas
+        "london", "manchester", "birmingham", "leeds", "liverpool", "bristol",
+        "sheffield", "newcastle", "nottingham", "southampton", "portsmouth",
+        "brighton", "edinburgh", "glasgow", "cardiff", "belfast", "surrey",
+        "essex", "kent", "sussex", "middlesex", "hertfordshire", "hampshire",
+        "doncaster", "epsom", "dartford", "bridgwater"
+    };
 
     public TitleDeedParser(ILogger<TitleDeedParser> logger)
     {
@@ -34,9 +59,6 @@ public class TitleDeedParser
     /// <summary>
     /// Extract proprietor name(s) from a title deed PDF
     /// </summary>
-    /// <param name="pdfBytes">PDF file content as byte array</param>
-    /// <param name="titleNumber">Title number for logging</param>
-    /// <returns>Extracted proprietor name(s) or null if not found</returns>
     public string? ExtractProprietorName(byte[] pdfBytes, string titleNumber)
     {
         try
@@ -81,95 +103,141 @@ public class TitleDeedParser
 
     /// <summary>
     /// Extract clean names from proprietor text
-    /// Handles patterns like:
-    /// - "COMPANY NAME (Co. Regn. No. XXX) of address"
-    /// - "PERSON NAME of address"
-    /// - "PERSON1 and PERSON2 of address"
-    /// - "PERSON1 of address1 and PERSON2 of address2"
     /// </summary>
     private string ExtractNamesFromProprietorText(string text)
     {
-        // Check if this is a joint ownership with separate addresses
-        // Pattern: "NAME1 of ADDRESS1 and NAME2 of ADDRESS2"
-        if (ContainsMultipleOwnerAddresses(text))
+        // Count " of " occurrences and check for " and " patterns
+        var ofCount = Regex.Matches(text, @"\s+of\s+", RegexOptions.IgnoreCase).Count;
+        var andMatches = Regex.Matches(text, @"\s+and\s+(?=[A-Z])", RegexOptions.IgnoreCase);
+
+        // Multiple owners with separate addresses: "NAME1 of ADDR1 and NAME2 of ADDR2"
+        if (ofCount > 1 && andMatches.Count > 0)
         {
-            return ExtractJointOwnersWithSeparateAddresses(text);
-        }
+            var names = new List<string>();
+            var parts = Regex.Split(text, @"\s+and\s+(?=[A-Z])");
 
-        // Simple case: "NAME(S) of ADDRESS" - extract before " of " followed by address
-        var nameMatch = NameOfAddressRegex.Match(text);
-        if (nameMatch.Success)
-        {
-            var name = nameMatch.Groups[1].Value.Trim();
-            return CleanProprietorName(name);
-        }
-
-        // Fallback: try to extract until first "of" followed by what looks like an address
-        var ofIndex = FindAddressOfIndex(text);
-        if (ofIndex > 0)
-        {
-            var name = text.Substring(0, ofIndex).Trim();
-            return CleanProprietorName(name);
-        }
-
-        // Last resort: return cleaned full text (might include address)
-        return CleanProprietorName(text);
-    }
-
-    /// <summary>
-    /// Check if text contains multiple owners with separate addresses
-    /// Pattern: "NAME of ADDRESS and NAME of ADDRESS"
-    /// </summary>
-    private static bool ContainsMultipleOwnerAddresses(string text)
-    {
-        // Look for pattern: "of [address] and [NAME]"
-        // The "and" after an address indicates joint ownership with separate addresses
-        return Regex.IsMatch(text, @"\s+of\s+[^,]+,.*\s+and\s+[A-Z]", RegexOptions.IgnoreCase);
-    }
-
-    /// <summary>
-    /// Extract names from joint ownership with separate addresses
-    /// "CAREY ANN HARRISON-ALLAN of Baycliffe Farm... and LAURA LINTERN of 32 Andrews Close..."
-    /// → "CAREY ANN HARRISON-ALLAN and LAURA LINTERN"
-    /// </summary>
-    private string ExtractJointOwnersWithSeparateAddresses(string text)
-    {
-        var names = new List<string>();
-
-        // Split by " and " where it's followed by an uppercase letter (start of name)
-        var parts = Regex.Split(text, @"\s+and\s+(?=[A-Z])");
-
-        foreach (var part in parts)
-        {
-            // For each part, extract the name before " of "
-            var ofIndex = FindAddressOfIndex(part);
-            if (ofIndex > 0)
+            foreach (var part in parts)
             {
-                var name = part.Substring(0, ofIndex).Trim();
-                names.Add(CleanProprietorName(name));
+                var name = ExtractSingleName(part);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    names.Add(name);
+                }
             }
-            else
+
+            if (names.Count > 0)
             {
-                // No "of" found, might be the full name
-                names.Add(CleanProprietorName(part.Trim()));
+                return string.Join(" and ", names);
             }
         }
 
-        return string.Join(" and ", names.Where(n => !string.IsNullOrWhiteSpace(n)));
+        // Joint owners sharing one address: "NAME1 and NAME2 of ADDRESS"
+        if (andMatches.Count > 0 && ofCount == 1)
+        {
+            var ofMatch = Regex.Match(text, @"\s+of\s+", RegexOptions.IgnoreCase);
+            if (ofMatch.Success)
+            {
+                var firstAnd = andMatches[0];
+                if (firstAnd.Index < ofMatch.Index)
+                {
+                    // Joint owners - extract everything before " of "
+                    var addressStart = FindAddressStart(text);
+                    if (addressStart > 0)
+                    {
+                        var namesPart = text.Substring(0, addressStart).Trim();
+                        return CleanProprietorName(namesPart);
+                    }
+                }
+            }
+        }
+
+        // Single owner case
+        return ExtractSingleName(text);
     }
 
     /// <summary>
-    /// Find the index of " of " that precedes an address (not part of a name)
+    /// Extract a single proprietor name from text, stripping address
     /// </summary>
-    private static int FindAddressOfIndex(string text)
+    private string ExtractSingleName(string text)
     {
-        // Find " of " followed by what looks like an address (number or building name)
-        var match = Regex.Match(text, @"\s+of\s+(?=\d|[A-Z][a-z]+\s+(House|Farm|Building|Court|Lodge|Hall|Place|Gardens|Park|Road|Street|Avenue|Lane|Drive|Close|Way|Crescent))");
-        return match.Success ? match.Index : -1;
+        var addressStart = FindAddressStart(text);
+
+        string name;
+        if (addressStart > 0)
+        {
+            name = text.Substring(0, addressStart).Trim();
+        }
+        else
+        {
+            name = text.Trim();
+        }
+
+        return CleanProprietorName(name);
     }
 
     /// <summary>
-    /// Clean up proprietor name by removing company registration details
+    /// Find where the address starts in the proprietor text.
+    /// Returns the index where the name ends (before address), or -1 if no address found.
+    /// </summary>
+    private int FindAddressStart(string text)
+    {
+        // 1. Check for "care of" - everything before it is the name
+        var careOfMatch = CareOfRegex.Match(text);
+        if (careOfMatch.Success)
+        {
+            return careOfMatch.Index;
+        }
+
+        // 2. Find all occurrences of " of " and check what follows
+        var ofMatches = Regex.Matches(text, @"\s+of\s+", RegexOptions.IgnoreCase);
+
+        foreach (Match match in ofMatches)
+        {
+            var afterOf = text.Substring(match.Index + match.Length);
+
+            // Check if " of " is followed by a number (street number)
+            if (afterOf.Length > 0 && char.IsDigit(afterOf[0]))
+            {
+                return match.Index;
+            }
+
+            // Check for postcode in the following text (next ~100 chars)
+            var checkLength = Math.Min(100, afterOf.Length);
+            var checkText = afterOf.Substring(0, checkLength);
+
+            if (UKPostcodeRegex.IsMatch(checkText))
+            {
+                return match.Index;
+            }
+
+            // Check for address keywords in the following text
+            foreach (var keyword in AddressKeywords)
+            {
+                if (Regex.IsMatch(checkText, @"\b" + Regex.Escape(keyword) + @"\b", RegexOptions.IgnoreCase))
+                {
+                    return match.Index;
+                }
+            }
+        }
+
+        // 3. Check if there's a postcode anywhere - find where address likely starts
+        var postcodeMatch = UKPostcodeRegex.Match(text);
+        if (postcodeMatch.Success)
+        {
+            // Work backwards from postcode to find " of "
+            var textBeforePostcode = text.Substring(0, postcodeMatch.Index);
+            var lastOf = textBeforePostcode.LastIndexOf(" of ", StringComparison.OrdinalIgnoreCase);
+            if (lastOf > 0)
+            {
+                return lastOf;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Clean up proprietor name by removing company registration details and artifacts
     /// </summary>
     private static string CleanProprietorName(string name)
     {
@@ -177,9 +245,12 @@ public class TitleDeedParser
         var cleaned = CompanyRegRegex.Replace(name, "");
 
         // Remove any trailing punctuation and extra spaces
-        cleaned = cleaned.Trim().TrimEnd('.', ',');
+        cleaned = cleaned.Trim().TrimEnd('.', ',', ';', ':');
         cleaned = Regex.Replace(cleaned, @"\s+", " ");
 
-        return cleaned;
+        // Remove trailing "of" if present (artifact from splitting)
+        cleaned = Regex.Replace(cleaned, @"\s+of\s*$", "", RegexOptions.IgnoreCase);
+
+        return cleaned.Trim();
     }
 }
