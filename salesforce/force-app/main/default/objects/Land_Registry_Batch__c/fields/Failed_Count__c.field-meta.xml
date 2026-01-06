@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Failed_Count__c</fullName>
-    <description>Number of failed or no match records</description>
+    <description>Number of records where landlord did not match property owner</description>
     <externalId>false</externalId>
-    <label>Failed Count</label>
+    <label>No Matches</label>
     <precision>18</precision>
     <required>false</required>
     <scale>0</scale>

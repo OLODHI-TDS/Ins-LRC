@@ -2,8 +2,12 @@ import { LightningElement, wire, track } from 'lwc';
 import { NavigationMixin } from 'lightning/navigation';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import { refreshApex } from '@salesforce/apex';
+import { loadScript } from 'lightning/platformResourceLoader';
+import ChartJs from '@salesforce/resourceUrl/ChartJs';
 import getRecentBatches from '@salesforce/apex/LandRegistryDashboardController.getRecentBatches';
 import getDashboardMetrics from '@salesforce/apex/LandRegistryDashboardController.getDashboardMetrics';
+import getStatusDistribution from '@salesforce/apex/LandRegistryDashboardController.getStatusDistribution';
+import getWeeklyTrends from '@salesforce/apex/LandRegistryDashboardController.getWeeklyTrends';
 import startBatchProcessing from '@salesforce/apex/LandRegistryDashboardController.startBatchProcessing';
 import submitCompanyBatch from '@salesforce/apex/HMLRCompanySubmission.submitCompanyBatch';
 import getPendingCompanyCount from '@salesforce/apex/HMLRCompanySubmission.getPendingCompanyCount';
@@ -30,7 +34,7 @@ const COLUMNS = [
     { label: 'Status', fieldName: 'status', type: 'text' },
     { label: 'Total', fieldName: 'totalRecords', type: 'number' },
     { label: 'Matched', fieldName: 'matchedCount', type: 'number' },
-    { label: 'Failed', fieldName: 'failedCount', type: 'number' },
+    { label: 'No Matches', fieldName: 'failedCount', type: 'number' },
     {
         label: 'Progress',
         fieldName: 'progressPercent',
@@ -63,6 +67,14 @@ export default class LandRegistryDashboard extends NavigationMixin(LightningElem
     @track selectedBatch = null;
     @track pendingCompanyCount = 0;
     @track isProcessingCompanies = false;
+
+    // Chart properties
+    @track isLoadingCharts = true;
+    @track statusChartData = [];
+    @track trendsChartData = null;
+    chartJsLoaded = false;
+    statusChart = null;
+    trendsChart = null;
 
     columns = COLUMNS;
     wiredBatchesResult;
@@ -100,6 +112,172 @@ export default class LandRegistryDashboard extends NavigationMixin(LightningElem
         } else if (result.error) {
             console.error('Error loading metrics:', result.error);
         }
+    }
+
+    @wire(getStatusDistribution)
+    wiredStatusDistribution({ error, data }) {
+        if (data) {
+            this.statusChartData = data;
+            if (this.chartJsLoaded && !this.isLoadingCharts) {
+                this.initStatusChart();
+            }
+        } else if (error) {
+            console.error('Error loading status distribution:', error);
+        }
+    }
+
+    @wire(getWeeklyTrends)
+    wiredWeeklyTrends({ error, data }) {
+        if (data) {
+            this.trendsChartData = data;
+            if (this.chartJsLoaded && !this.isLoadingCharts) {
+                this.initTrendsChart();
+            }
+        } else if (error) {
+            console.error('Error loading weekly trends:', error);
+        }
+    }
+
+    async renderedCallback() {
+        if (this.chartJsLoaded) {
+            // Chart.js already loaded - try to initialize charts if canvas is now in DOM
+            this.tryInitCharts();
+            return;
+        }
+
+        try {
+            await loadScript(this, ChartJs);
+            this.chartJsLoaded = true;
+            this.isLoadingCharts = false;
+            // Charts will be initialized on next render when canvas elements are in DOM
+        } catch (error) {
+            console.error('Error loading Chart.js:', error);
+            this.isLoadingCharts = false;
+        }
+    }
+
+    tryInitCharts() {
+        // Initialize charts if data is loaded and canvas exists
+        if (this.statusChartData && this.statusChartData.length > 0 && !this.statusChart) {
+            this.initStatusChart();
+        }
+        if (this.trendsChartData && !this.trendsChart) {
+            this.initTrendsChart();
+        }
+    }
+
+    initStatusChart() {
+        const canvas = this.template.querySelector('canvas.status-chart');
+        if (!canvas) {
+            return;
+        }
+
+        // Destroy existing chart if any
+        if (this.statusChart) {
+            this.statusChart.destroy();
+        }
+
+        const ctx = canvas.getContext('2d');
+        const labels = this.statusChartData.map(d => d.label);
+        const values = this.statusChartData.map(d => d.value);
+        const colors = this.statusChartData.map(d => d.color);
+
+        this.statusChart = new window.Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: colors,
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutoutPercentage: 60,
+                legend: {
+                    position: 'right',
+                    labels: {
+                        padding: 15,
+                        usePointStyle: true,
+                        fontSize: 12
+                    }
+                },
+                tooltips: {
+                    callbacks: {
+                        label: function(tooltipItem, data) {
+                            const dataset = data.datasets[tooltipItem.datasetIndex];
+                            const total = dataset.data.reduce((a, b) => a + b, 0);
+                            const value = dataset.data[tooltipItem.index];
+                            const percentage = Math.round((value / total) * 100);
+                            const label = data.labels[tooltipItem.index];
+                            return `${label}: ${value} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    initTrendsChart() {
+        const canvas = this.template.querySelector('canvas.trends-chart');
+        if (!canvas || !this.trendsChartData) {
+            return;
+        }
+
+        // Destroy existing chart if any
+        if (this.trendsChart) {
+            this.trendsChart.destroy();
+        }
+
+        const ctx = canvas.getContext('2d');
+
+        this.trendsChart = new window.Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: this.trendsChartData.labels,
+                datasets: [
+                    {
+                        label: 'Processed',
+                        data: this.trendsChartData.processed,
+                        backgroundColor: '#0176d3'
+                    },
+                    {
+                        label: 'Matched',
+                        data: this.trendsChartData.matched,
+                        backgroundColor: '#2e844a'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                legend: {
+                    position: 'top',
+                    labels: {
+                        padding: 15,
+                        usePointStyle: true,
+                        fontSize: 12
+                    }
+                },
+                scales: {
+                    xAxes: [{
+                        gridLines: {
+                            display: false
+                        }
+                    }],
+                    yAxes: [{
+                        ticks: {
+                            beginAtZero: true,
+                            stepSize: 1,
+                            precision: 0
+                        }
+                    }]
+                }
+            }
+        });
     }
 
     handleNewUpload() {

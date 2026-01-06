@@ -46,6 +46,47 @@
             </div>
         </div>
 
+        <!-- Charts Row -->
+        <div class="slds-col slds-size_1-of-1 slds-m-bottom_medium">
+            <div class="slds-grid slds-gutters">
+                <!-- Status Distribution Donut Chart -->
+                <div class="slds-col slds-size_1-of-2">
+                    <lightning-card title="Record Status" icon-name="utility:chart">
+                        <div class="chart-container slds-p-around_medium">
+                            <template if:true={isLoadingCharts}>
+                                <div class="slds-align_absolute-center" style="height: 250px;">
+                                    <lightning-spinner alternative-text="Loading chart..." size="medium"></lightning-spinner>
+                                </div>
+                            </template>
+                            <template if:false={isLoadingCharts}>
+                                <div class="chart-wrapper">
+                                    <canvas lwc:dom="manual" class="status-chart"></canvas>
+                                </div>
+                            </template>
+                        </div>
+                    </lightning-card>
+                </div>
+
+                <!-- Weekly Trends Bar Chart -->
+                <div class="slds-col slds-size_1-of-2">
+                    <lightning-card title="Weekly Activity (Last 8 Weeks)" icon-name="utility:trending">
+                        <div class="chart-container slds-p-around_medium">
+                            <template if:true={isLoadingCharts}>
+                                <div class="slds-align_absolute-center" style="height: 250px;">
+                                    <lightning-spinner alternative-text="Loading chart..." size="medium"></lightning-spinner>
+                                </div>
+                            </template>
+                            <template if:false={isLoadingCharts}>
+                                <div class="chart-wrapper">
+                                    <canvas lwc:dom="manual" class="trends-chart"></canvas>
+                                </div>
+                            </template>
+                        </div>
+                    </lightning-card>
+                </div>
+            </div>
+        </div>
+
         <!-- Recent Batches -->
         <div class="slds-col slds-size_1-of-1">
             <lightning-card title="Recent Batches" icon-name="utility:layers">

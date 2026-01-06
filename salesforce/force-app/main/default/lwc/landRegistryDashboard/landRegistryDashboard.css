@@ -20,3 +20,18 @@
 .slds-modal__container {
     max-width: 500px;
 }
+
+/* Chart Styles */
+.chart-container {
+    min-height: 280px;
+}
+
+.chart-wrapper {
+    position: relative;
+    height: 250px;
+    width: 100%;
+}
+
+.chart-wrapper canvas {
+    max-width: 100%;
+}

@@ -98,6 +98,116 @@ public with sharing class LandRegistryDashboardController {
     }
 
     /**
+     * @description Get status distribution for donut chart
+     * @return List of chart data points with label, value, and color
+     */
+    @AuraEnabled(cacheable=true)
+    public static List<ChartDataPoint> getStatusDistribution() {
+        List<ChartDataPoint> dataPoints = new List<ChartDataPoint>();
+
+        // Color mapping for each status
+        Map<String, String> statusColors = new Map<String, String>{
+            'Matched' => '#2e844a',
+            'Under Review' => '#fe9339',
+            'No Match' => '#ea001e',
+            'Pending' => '#706e6b',
+            'Submitted to HMLR' => '#0176d3',
+            'Letter Sent' => '#aa46be',
+            'Closed' => '#444444'
+        };
+
+        List<AggregateResult> results = [
+            SELECT Status__c, COUNT(Id) cnt
+            FROM Land_Registry_Check__c
+            GROUP BY Status__c
+            ORDER BY Status__c
+        ];
+
+        for (AggregateResult ar : results) {
+            String status = (String)ar.get('Status__c');
+            Integer count = (Integer)ar.get('cnt');
+
+            if (status != null && count > 0) {
+                ChartDataPoint dp = new ChartDataPoint();
+                dp.label = status;
+                dp.value = count;
+                dp.color = statusColors.containsKey(status) ? statusColors.get(status) : '#706e6b';
+                dataPoints.add(dp);
+            }
+        }
+
+        return dataPoints;
+    }
+
+    /**
+     * @description Get weekly processing trends for bar chart (last 8 weeks)
+     * @return WeeklyTrendData with labels and datasets
+     */
+    @AuraEnabled(cacheable=true)
+    public static WeeklyTrendData getWeeklyTrends() {
+        WeeklyTrendData trendData = new WeeklyTrendData();
+        trendData.labels = new List<String>();
+        trendData.processed = new List<Integer>();
+        trendData.matched = new List<Integer>();
+
+        // Calculate date 8 weeks ago
+        Date eightWeeksAgo = Date.today().addDays(-56);
+
+        // Query records grouped by week
+        List<AggregateResult> results = [
+            SELECT WEEK_IN_YEAR(CreatedDate) weekNum,
+                   CALENDAR_YEAR(CreatedDate) yr,
+                   COUNT(Id) total
+            FROM Land_Registry_Check__c
+            WHERE CreatedDate >= :eightWeeksAgo
+            GROUP BY WEEK_IN_YEAR(CreatedDate), CALENDAR_YEAR(CreatedDate)
+            ORDER BY CALENDAR_YEAR(CreatedDate), WEEK_IN_YEAR(CreatedDate)
+        ];
+
+        // Query matched records separately
+        List<AggregateResult> matchedResults = [
+            SELECT WEEK_IN_YEAR(CreatedDate) weekNum,
+                   CALENDAR_YEAR(CreatedDate) yr,
+                   COUNT(Id) matchedCount
+            FROM Land_Registry_Check__c
+            WHERE CreatedDate >= :eightWeeksAgo
+              AND Status__c = 'Matched'
+            GROUP BY WEEK_IN_YEAR(CreatedDate), CALENDAR_YEAR(CreatedDate)
+            ORDER BY CALENDAR_YEAR(CreatedDate), WEEK_IN_YEAR(CreatedDate)
+        ];
+
+        // Build matched lookup map
+        Map<String, Integer> matchedMap = new Map<String, Integer>();
+        for (AggregateResult ar : matchedResults) {
+            String key = String.valueOf(ar.get('yr')) + '-' + String.valueOf(ar.get('weekNum'));
+            matchedMap.put(key, (Integer)ar.get('matchedCount'));
+        }
+
+        // Build the trend data
+        for (AggregateResult ar : results) {
+            Integer weekNum = (Integer)ar.get('weekNum');
+            Integer year = (Integer)ar.get('yr');
+            Integer total = (Integer)ar.get('total');
+
+            String key = String.valueOf(year) + '-' + String.valueOf(weekNum);
+            Integer matched = matchedMap.containsKey(key) ? matchedMap.get(key) : 0;
+
+            trendData.labels.add('Week ' + weekNum);
+            trendData.processed.add(total);
+            trendData.matched.add(matched);
+        }
+
+        // If no data, add placeholder
+        if (trendData.labels.isEmpty()) {
+            trendData.labels.add('No Data');
+            trendData.processed.add(0);
+            trendData.matched.add(0);
+        }
+
+        return trendData;
+    }
+
+    /**
      * @description Get a single batch with all check records
      * @param batchId The batch record ID
      * @return Batch with checks
@@ -341,5 +451,23 @@ public with sharing class LandRegistryDashboardController {
             this.companiesSubmitted = 0;
             this.individualsSubmitted = 0;
         }
+    }
+
+    /**
+     * @description Data point for chart visualization
+     */
+    public class ChartDataPoint {
+        @AuraEnabled public String label;
+        @AuraEnabled public Integer value;
+        @AuraEnabled public String color;
+    }
+
+    /**
+     * @description Weekly trend data for bar chart
+     */
+    public class WeeklyTrendData {
+        @AuraEnabled public List<String> labels;
+        @AuraEnabled public List<Integer> processed;
+        @AuraEnabled public List<Integer> matched;
     }
 }

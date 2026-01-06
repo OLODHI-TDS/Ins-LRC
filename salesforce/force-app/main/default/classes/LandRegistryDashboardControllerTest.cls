@@ -308,4 +308,138 @@ private class LandRegistryDashboardControllerTest {
         System.assertEquals(0, result.companiesSubmitted, 'Default companiesSubmitted should be 0');
         System.assertEquals(0, result.individualsSubmitted, 'Default individualsSubmitted should be 0');
     }
+
+    @isTest
+    static void testGetStatusDistribution() {
+        // Update some records to different statuses for testing
+        List<Land_Registry_Check__c> checks = [
+            SELECT Id, Status__c FROM Land_Registry_Check__c LIMIT 5
+        ];
+        checks[0].Status__c = 'Matched';
+        checks[1].Status__c = 'Under Review';
+        checks[2].Status__c = 'No Match';
+        checks[3].Status__c = 'Pending';
+        checks[4].Status__c = 'Submitted to HMLR';
+        update checks;
+
+        Test.startTest();
+        List<LandRegistryDashboardController.ChartDataPoint> dataPoints =
+            LandRegistryDashboardController.getStatusDistribution();
+        Test.stopTest();
+
+        // Should have 5 different statuses
+        System.assertEquals(5, dataPoints.size(), 'Should have 5 status data points');
+
+        // Verify each data point has required fields
+        for (LandRegistryDashboardController.ChartDataPoint dp : dataPoints) {
+            System.assertNotEquals(null, dp.label, 'Label should not be null');
+            System.assertNotEquals(null, dp.value, 'Value should not be null');
+            System.assertNotEquals(null, dp.color, 'Color should not be null');
+            System.assert(dp.color.startsWith('#'), 'Color should be hex format');
+        }
+    }
+
+    @isTest
+    static void testGetStatusDistributionEmpty() {
+        // Delete all check records
+        delete [SELECT Id FROM Land_Registry_Check__c];
+
+        Test.startTest();
+        List<LandRegistryDashboardController.ChartDataPoint> dataPoints =
+            LandRegistryDashboardController.getStatusDistribution();
+        Test.stopTest();
+
+        System.assertEquals(0, dataPoints.size(), 'Should return empty list when no records');
+    }
+
+    @isTest
+    static void testGetWeeklyTrends() {
+        // Records were created in TestSetup, should appear in current week
+
+        Test.startTest();
+        LandRegistryDashboardController.WeeklyTrendData trendData =
+            LandRegistryDashboardController.getWeeklyTrends();
+        Test.stopTest();
+
+        System.assertNotEquals(null, trendData.labels, 'Labels should not be null');
+        System.assertNotEquals(null, trendData.processed, 'Processed should not be null');
+        System.assertNotEquals(null, trendData.matched, 'Matched should not be null');
+
+        // Should have at least one week of data
+        System.assert(trendData.labels.size() > 0, 'Should have at least one week');
+        System.assertEquals(trendData.labels.size(), trendData.processed.size(),
+            'Labels and processed arrays should be same size');
+        System.assertEquals(trendData.labels.size(), trendData.matched.size(),
+            'Labels and matched arrays should be same size');
+    }
+
+    @isTest
+    static void testGetWeeklyTrendsWithMatched() {
+        // Update some records to Matched status
+        List<Land_Registry_Check__c> checks = [
+            SELECT Id, Status__c FROM Land_Registry_Check__c LIMIT 3
+        ];
+        for (Land_Registry_Check__c check : checks) {
+            check.Status__c = 'Matched';
+        }
+        update checks;
+
+        Test.startTest();
+        LandRegistryDashboardController.WeeklyTrendData trendData =
+            LandRegistryDashboardController.getWeeklyTrends();
+        Test.stopTest();
+
+        // Should have matched count > 0 for this week
+        Boolean hasMatchedData = false;
+        for (Integer matched : trendData.matched) {
+            if (matched > 0) {
+                hasMatchedData = true;
+                break;
+            }
+        }
+        System.assert(hasMatchedData, 'Should have matched records in trend data');
+    }
+
+    @isTest
+    static void testGetWeeklyTrendsEmpty() {
+        // Delete all check records
+        delete [SELECT Id FROM Land_Registry_Check__c];
+
+        Test.startTest();
+        LandRegistryDashboardController.WeeklyTrendData trendData =
+            LandRegistryDashboardController.getWeeklyTrends();
+        Test.stopTest();
+
+        // Should return placeholder data
+        System.assertEquals(1, trendData.labels.size(), 'Should have placeholder label');
+        System.assertEquals('No Data', trendData.labels[0], 'Placeholder should be No Data');
+        System.assertEquals(0, trendData.processed[0], 'Placeholder processed should be 0');
+        System.assertEquals(0, trendData.matched[0], 'Placeholder matched should be 0');
+    }
+
+    @isTest
+    static void testChartDataPointClass() {
+        LandRegistryDashboardController.ChartDataPoint dp =
+            new LandRegistryDashboardController.ChartDataPoint();
+        dp.label = 'Test Status';
+        dp.value = 42;
+        dp.color = '#ff0000';
+
+        System.assertEquals('Test Status', dp.label);
+        System.assertEquals(42, dp.value);
+        System.assertEquals('#ff0000', dp.color);
+    }
+
+    @isTest
+    static void testWeeklyTrendDataClass() {
+        LandRegistryDashboardController.WeeklyTrendData td =
+            new LandRegistryDashboardController.WeeklyTrendData();
+        td.labels = new List<String>{'Week 1', 'Week 2'};
+        td.processed = new List<Integer>{10, 20};
+        td.matched = new List<Integer>{5, 15};
+
+        System.assertEquals(2, td.labels.size());
+        System.assertEquals(2, td.processed.size());
+        System.assertEquals(2, td.matched.size());
+    }
 }

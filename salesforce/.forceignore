@@ -1,0 +1,11 @@
+# .forceignore v2
+
+# Page Layouts - keep in source control
+# **/layouts/**
+
+# Profiles - frequently cause merge conflicts and unwanted changes
+**/profiles/**
+
+# Other common exclusions
+**/.eslintrc.json
+**/__tests__/**
