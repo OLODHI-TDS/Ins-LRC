@@ -457,6 +457,16 @@ public class ProcessHMLRResponse
         {
             sfRecords = await _salesforceService.QueryAsync<LandRegistryCheckRecord>(soql);
             _logger.LogInformation("Found {Count} matching records in Salesforce", sfRecords.Count);
+
+            // Debug: Log all SF records returned
+            foreach (var sfRec in sfRecords)
+            {
+                _logger.LogInformation(
+                    "SF Record: Id={Id}, Name={Name}, LandlordId='{LandlordId}' (bytes: [{Bytes}]), Postcode={Postcode}",
+                    sfRec.Id, sfRec.Name, sfRec.LandlordId,
+                    string.Join(",", (sfRec.LandlordId ?? "").Select(c => (int)c)),
+                    sfRec.PropertyPostcode);
+            }
         }
         catch (Exception ex)
         {
@@ -466,6 +476,18 @@ public class ProcessHMLRResponse
 
         // Match updates to Salesforce records and prepare bulk update
         var bulkUpdates = new List<(string RecordId, object UpdateData)>();
+
+        // Debug: Log all CustomerRefs from Excel
+        _logger.LogInformation("Attempting to match {Count} updates from Excel:", updates.Count);
+        foreach (var upd in updates)
+        {
+            _logger.LogInformation(
+                "  Excel row: CustomerRef='{Ref}' (bytes: [{Bytes}]), TitleNumber={Title}, Status={Status}",
+                upd.CustomerRef,
+                string.Join(",", (upd.CustomerRef ?? "").Select(c => (int)c)),
+                upd.TitleNumber,
+                upd.Status);
+        }
 
         foreach (var update in updates)
         {
@@ -500,7 +522,13 @@ public class ProcessHMLRResponse
 
             if (matchedRecord == null)
             {
-                _logger.LogWarning("No Salesforce record found for CustomerRef: {Ref}", update.CustomerRef);
+                _logger.LogWarning(
+                    "No Salesforce record found for CustomerRef: '{Ref}' (bytes: [{Bytes}]). " +
+                    "Remaining SF records: {Count}. Their LandlordIds: [{Ids}]",
+                    update.CustomerRef,
+                    string.Join(",", (update.CustomerRef ?? "").Select(c => (int)c)),
+                    sfRecords.Count,
+                    string.Join(", ", sfRecords.Select(r => $"'{r.LandlordId}'")));
                 continue;
             }
 
