@@ -12,8 +12,9 @@ public class TitleDeedParser
     private readonly ILogger<TitleDeedParser> _logger;
 
     // Regex to find PROPRIETOR entry
+    // Stops at: numbered entries like "2(" or ".2(", "End of register", "C: Charges Register"
     private static readonly Regex ProprietorRegex = new(
-        @"PROPRIETOR:\s*(.+?)(?=\s*\d{1,2}\s+\(|\s*End of register|\s*C:\s*Charges Register|$)",
+        @"PROPRIETOR:\s*(.+?)(?=\.?\s*\d{1,2}\s*\(|\s*End of register|\s*C:\s*Charges Register|$)",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
 
     // Regex to strip company registration details
@@ -29,6 +30,12 @@ public class TitleDeedParser
     // Pattern for "care of" which always indicates address follows
     private static readonly Regex CareOfRegex = new(
         @"\s+care\s*of\s+",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Pattern for "of" that may be missing preceding space (e.g., "LIMITEDof" from PDF extraction)
+    // Matches: " of ", "Dof " (uppercase letter followed by "of")
+    private static readonly Regex OfAddressRegex = new(
+        @"(?<=\S)of\s+|(?<=\s)of\s+",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // Common address/location keywords that indicate start of address
@@ -82,6 +89,10 @@ public class TitleDeedParser
             var proprietorText = match.Groups[1].Value.Trim();
             _logger.LogDebug("Raw proprietor text for {TitleNumber}: {Text}", titleNumber, proprietorText);
 
+            // Normalize PDF text extraction issues (missing spaces)
+            proprietorText = NormalizePdfText(proprietorText);
+            _logger.LogDebug("Normalized proprietor text for {TitleNumber}: {Text}", titleNumber, proprietorText);
+
             // Extract names from the proprietor text
             var names = ExtractNamesFromProprietorText(proprietorText);
 
@@ -99,6 +110,32 @@ public class TitleDeedParser
             _logger.LogError(ex, "Error extracting proprietor name from {TitleNumber}", titleNumber);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Normalize PDF text to fix common extraction issues like missing spaces
+    /// </summary>
+    private static string NormalizePdfText(string text)
+    {
+        // Fix "LIMITEDof" or "FROSTof" -> "LIMITED of" / "FROST of"
+        // Pattern: letter followed by "of" followed by either space or uppercase letter
+        // e.g., "LIMITEDof 3" -> "LIMITED of 3"
+        // e.g., "FROSTofMayfield" -> "FROST of Mayfield"
+        text = Regex.Replace(text, @"([a-zA-Z])of(\s+)", "$1 of$2", RegexOptions.None);
+        text = Regex.Replace(text, @"([a-zA-Z])of([A-Z])", "$1 of $2", RegexOptions.None);
+
+        // Fix missing space before/after "and" when preceded by postcode or uppercase letters
+        // e.g., "SW15 1QRand WILLIAM" -> "SW15 1QR and WILLIAM"
+        // e.g., "TA7 0RYandWILLIAM" -> "TA7 0RY and WILLIAM"
+        // e.g., "QR.and" -> "QR. and"
+        text = Regex.Replace(text, @"([A-Z0-9])and\s*([A-Z])", "$1 and $2", RegexOptions.None);
+        text = Regex.Replace(text, @"\.and\s+", ". and ", RegexOptions.IgnoreCase);
+
+        // Fix missing space after period before names/text (but not before numbers which are entry markers)
+        // e.g., "1QR.SAMUEL" -> "1QR. SAMUEL" but keep "1QR.2(" as is
+        text = Regex.Replace(text, @"\.([A-Z][a-z])", ". $1", RegexOptions.None);
+
+        return text;
     }
 
     /// <summary>
