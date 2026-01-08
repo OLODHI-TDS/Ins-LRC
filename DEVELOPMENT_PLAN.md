@@ -8,18 +8,18 @@
 | **Phases** | 6 |
 | **Key Dependencies** | HMLR Certificate *(awaiting Security Ops)* |
 | **Target Environment** | Salesforce (OmarDev) + Azure (Personal → TDS) |
-| **Last Updated** | 5 January 2026 |
+| **Last Updated** | 8 January 2026 |
 
 ### Progress Overview
 
 | Phase | Status | Completion |
 |-------|--------|------------|
 | Phase 1: Salesforce Foundation | ✅ Complete | 100% |
-| Phase 2: Salesforce UI Components | 🟡 In Progress | ~60% |
+| Phase 2: Salesforce UI Components | 🟡 In Progress | ~70% |
 | Phase 3: Azure Infrastructure | ✅ Complete | 100% |
-| Phase 4: Azure Functions Development | 🟡 In Progress | ~75% (Individual landlord blocked on HMLR cert) |
-| Phase 5: Integration & Testing | 🟡 In Progress | ~70% (Company flow fully tested) |
-| Phase 6: UAT & Documentation | ⬜ Not Started | 0% |
+| Phase 4: Azure Functions Development | ✅ Complete (Company) | ~85% (Individual landlord blocked on HMLR cert) |
+| Phase 5: Integration & Testing | ✅ Complete (Company) | ~80% (Company flow fully tested end-to-end) |
+| Phase 6: UAT & Documentation | 🟡 In Progress | ~10% (Demo presentation created) |
 
 ---
 
@@ -118,8 +118,12 @@
 | AZ-4.9 | PDF Storage Activity | Upload PDF to Blob Storage, generate SAS URL | 0.5 days | ✅ Done (`DocumentStorage` functions) |
 | AZ-4.10 | HMLR Response Parser | Parse returned Excel, extract match results | 1 day | ✅ Done & Tested (`ProcessHMLRResponse`) |
 | AZ-4.11 | Error Handling & Retry Logic | Robust error handling, dead-letter queue, alerts | 1 day | 🟡 Partial |
+| AZ-4.12 | Title Deed PDF Parser | Extract proprietor names from title deed PDFs using PdfPig | 1 day | ✅ Done (`TitleDeedParser`) |
+| AZ-4.13 | PDF Text Normalization | Handle missing spaces in PDF extraction (e.g., "LIMITEDof" → "LIMITED of") | 0.5 days | ✅ Done |
+| AZ-4.14 | Email Folder Management | Move processed emails to Processed/Failed folders | 0.5 days | ✅ Done (`EmailFolderService`) |
+| AZ-4.15 | Salesforce Service Client | Call SF REST API from Azure to update records with HMLR results | 1 day | ✅ Done (`SalesforceService`) |
 
-**Phase 4 Total: 12 days** (4.5 days complete, 2.5 days in progress, 5 days blocked)
+**Phase 4 Total: 15 days** (9 days complete, 1 day in progress, 5 days blocked)
 
 ### Deployed Azure Functions
 
@@ -129,21 +133,30 @@
 | `CheckHMLRInbox` | Timer-triggered (15 min) inbox polling | ✅ Deployed & Tested |
 | `CheckHMLRInboxManual` | Manual inbox check for testing | ✅ Deployed & Tested |
 | `ProcessHMLRResponse` | Parse Excel, extract PDFs, update Salesforce | ✅ Deployed & Tested |
-| `ProcessHMLRResponseFromBlob` | Blob-triggered response processing | ✅ Deployed |
+| `ProcessHMLRResponseFromBlob` | Blob-triggered response processing | ✅ Deployed & Tested |
 | `NotifyComplianceTeam` | Send notification emails | ✅ Deployed & Tested |
 | `NotifyComplianceTeamFromBlob` | Blob-triggered notifications | ✅ Deployed |
 | `UploadDocument` | Upload PDFs to blob storage | ✅ Deployed |
 | `GetDocumentUrl` | Generate SAS URLs for PDFs | ✅ Deployed |
+| `GetTitleDeed` | Retrieve title deed PDF by title number | ✅ Deployed |
 | `ListDocuments` | List documents for a record | ✅ Deployed |
 | `DeleteDocument` | Delete documents from blob | ✅ Deployed |
 
+### Deployed Services
+
+| Service | Purpose | Status |
+|---------|---------|--------|
+| `TitleDeedParser` | Extract proprietor names from HMLR title deed PDFs | ✅ Deployed & Tested |
+| `SalesforceService` | OAuth token management, REST API calls to Salesforce | ✅ Deployed & Tested |
+| `EmailFolderService` | Manage Processed/Failed mail folders for inbox organization | ✅ Deployed |
+
 ---
 
-## Phase 5: Integration & Testing 🟡
+## Phase 5: Integration & Testing ✅ (Company Flow)
 
 **Objective:** Connect all components and validate end-to-end flow
 
-**Status:** In Progress (~70% complete)
+**Status:** Company flow complete (~80%), Individual flow blocked on HMLR certificate
 
 ### Tasks
 
@@ -154,19 +167,21 @@
 | INT-5.3 | HMLR BGTest Validation | Test OOV and Official Copy APIs with real certificate | 1 day | 🔒 Blocked (awaiting cert) |
 | INT-5.4 | Email Flow Testing | Test automated email send and inbox monitoring | 1 day | ✅ Done |
 | INT-5.5 | End-to-End Test (Individuals) | Full flow: Upload → OOV → Official Copy → SF Update | 1 day | 🔒 Blocked (awaiting cert) |
-| INT-5.6 | End-to-End Test (Companies) | Full flow: Upload → Excel → Email → Response → SF Update | 1 day | ✅ Done (12 records processed successfully) |
+| INT-5.6 | End-to-End Test (Companies) | Full flow: Upload → Excel → Email → Response → SF Update | 1 day | ✅ Done (42 records across multiple tests) |
 | INT-5.7 | Performance Testing | Test with realistic batch sizes (~250 records) | 0.5 days | ⬜ Not Started |
 | INT-5.8 | Error Scenario Testing | Network failures, API errors, invalid data | 0.5 days | ⬜ Not Started |
+| INT-5.9 | Proprietor Name Extraction | Test PDF parsing for various proprietor formats | 0.5 days | ✅ Done |
+| INT-5.10 | Email Folder Management | Test Processed/Failed folder movement after processing | 0.5 days | ✅ Done |
 
-**Phase 5 Total: 6.5 days** (3.5 days complete, 3 days blocked)
+**Phase 5 Total: 7.5 days** (5 days complete, 2 days blocked, 0.5 days remaining)
 
 ---
 
-## Phase 6: UAT & Documentation ⬜
+## Phase 6: UAT & Documentation 🟡
 
 **Objective:** User acceptance testing and handover documentation
 
-**Status:** Not Started (waiting for HMLR certificate to enable full testing)
+**Status:** In Progress (demo presentation created, UAT pending for company flow)
 
 ### Tasks
 
@@ -176,23 +191,26 @@
 | UAT-6.2 | UAT Execution | Support Karen through testing, capture feedback | 1 day | ⬜ Not Started |
 | UAT-6.3 | Bug Fixes & Refinements | Address UAT feedback | 1.5 days | ⬜ Not Started |
 | UAT-6.4 | User Guide | Step-by-step guide for compliance team | 0.5 days | ⬜ Not Started |
-| UAT-6.5 | Technical Documentation | Architecture, deployment, troubleshooting guide | 0.5 days | ⬜ Not Started |
+| UAT-6.5 | Technical Documentation | Architecture, deployment, troubleshooting guide | 0.5 days | 🟡 Partial (CLAUDE.md maintained) |
+| UAT-6.6 | Stakeholder Demo Presentation | Presentation guide for demo to Karen, Adrian, Sanam | 0.5 days | ✅ Done |
 
-**Phase 6 Total: 4 days** (0 days complete)
+**Phase 6 Total: 5 days** (0.5 days complete, 0.5 days in progress)
 
 ---
 
 ## Effort Summary
 
-| Phase | Description | Estimate (Days) |
-|-------|-------------|-----------------|
-| Phase 1 | Salesforce Foundation | 2.5 |
-| Phase 2 | Salesforce UI Components | 9.5 |
-| Phase 3 | Azure Infrastructure | 5.5 |
-| Phase 4 | Azure Functions Development | 12 |
-| Phase 5 | Integration & Testing | 6.5 |
-| Phase 6 | UAT & Documentation | 4 |
-| **TOTAL** | | **40 days** |
+| Phase | Description | Estimate (Days) | Complete | Remaining |
+|-------|-------------|-----------------|----------|-----------|
+| Phase 1 | Salesforce Foundation | 2.5 | 2.5 ✅ | 0 |
+| Phase 2 | Salesforce UI Components | 9.5 | 6.5 | 3 |
+| Phase 3 | Azure Infrastructure | 5.5 | 5.5 ✅ | 0 |
+| Phase 4 | Azure Functions Development | 15 | 9 | 6 (5 blocked) |
+| Phase 5 | Integration & Testing | 7.5 | 5 | 2.5 (2 blocked) |
+| Phase 6 | UAT & Documentation | 5 | 1 | 4 |
+| **TOTAL** | | **45 days** | **29.5** | **15.5** |
+
+**Progress:** ~66% complete (excluding blocked items: ~80% of unblocked work done)
 
 ### Contingency & Risk Buffer
 

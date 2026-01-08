@@ -228,11 +228,19 @@ TDS Compliance carries out weekly due diligence checks to verify that landlords 
 | `CheckHMLRInbox` | Timer | Timer-triggered (15 min) inbox polling | ✅ Deployed & Tested |
 | `CheckHMLRInboxManual` | HTTP | Manual inbox check for testing | ✅ Deployed & Tested |
 | `ProcessHMLRResponse` | HTTP | Parses response Excel, updates SF records | ✅ Deployed & Tested |
-| `ProcessHMLRResponseFromBlob` | Blob | Blob-triggered response processing | ✅ Deployed |
+| `ProcessHMLRResponseFromBlob` | Blob | Blob-triggered response processing | ✅ Deployed & Tested |
 | `NotifyComplianceTeam` | HTTP | Send notification emails | ✅ Deployed & Tested |
 | `UploadDocument` | HTTP | Upload PDFs to blob storage | ✅ Deployed |
 | `GetDocumentUrl` | HTTP | Generate SAS URLs for PDFs | ✅ Deployed |
+| `GetTitleDeed` | HTTP | Retrieve title deed PDF by title number | ✅ Deployed |
 | `ProcessIndividualLandlord` | HTTP | Calls OOV API, then Official Copy API if needed | ⏳ Blocked by cert |
+
+**Azure Services (DI-registered):**
+| Service | Description | Status |
+|---------|-------------|--------|
+| `TitleDeedParser` | Extracts proprietor names from HMLR title deed PDFs | ✅ Deployed & Tested |
+| `SalesforceService` | OAuth token management, REST API calls to update SF records | ✅ Deployed & Tested |
+| `EmailFolderService` | Manages Processed/Failed mail folders for inbox organization | ✅ Deployed |
 
 **Function Endpoints:**
 - `SendCompanyBatchToHMLR`: `https://func-landreg-api.azurewebsites.net/api/sendcompanybatchtohmlr`
@@ -536,8 +544,15 @@ After deployment, set up `Land_Registry_Settings__c` custom setting with:
 - ✅ `ProcessHMLRResponse` Azure Function for parsing HMLR Excel and updating Salesforce
 - ✅ RPMSG decryption and Excel/ZIP extraction from encrypted HMLR emails
 - ✅ PDF title deed storage in Azure Blob with SAS URL generation
-- ✅ End-to-end company landlord flow tested (12 records: 7 Matched, 3 Under Review, 2 No Match)
+- ✅ End-to-end company landlord flow tested (42 records across multiple test batches)
 - ✅ Salesforce record updates from Azure Functions (Status, Match_Type, Title_Number, Title_Deed_URL)
+- ✅ `TitleDeedParser` service for extracting proprietor names from title deed PDFs
+- ✅ PDF text normalization to handle missing spaces (e.g., "LIMITEDof" → "LIMITED of")
+- ✅ Proprietor name extraction with address stripping and company registration removal
+- ✅ `SalesforceService` for Azure → Salesforce REST API integration with OAuth
+- ✅ `EmailFolderService` for organizing processed emails into Processed/Failed folders
+- ✅ Title_Deed_Proprietor_Name__c field added to Land_Registry_Check__c
+- ✅ Stakeholder demo presentation guide created
 
 ---
 
