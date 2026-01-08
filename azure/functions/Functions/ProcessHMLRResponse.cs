@@ -69,11 +69,13 @@ public class ProcessHMLRResponse
     {
         _logger.LogInformation("ProcessHMLRResponse function started at: {Time}", DateTime.UtcNow);
 
+        HMLRResponsePair? pair = null;
+
         try
         {
             // Read the pair info from request body
             var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-            var pair = JsonSerializer.Deserialize<HMLRResponsePair>(requestBody);
+            pair = JsonSerializer.Deserialize<HMLRResponsePair>(requestBody);
 
             if (pair == null)
             {
