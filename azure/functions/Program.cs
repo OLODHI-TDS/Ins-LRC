@@ -67,6 +67,9 @@ var host = new HostBuilder()
 
         // Register TitleDeedParser for extracting proprietor names from PDFs
         services.AddSingleton<TitleDeedParser>();
+
+        // Register EmailFolderService for managing email folders (Processed/Failed)
+        services.AddSingleton<EmailFolderService>();
     })
     .Build();
 

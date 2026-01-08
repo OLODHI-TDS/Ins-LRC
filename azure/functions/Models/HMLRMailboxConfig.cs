@@ -30,4 +30,14 @@ public class HMLRMailboxConfig
     /// Container name for temporary storage of pending emails
     /// </summary>
     public static readonly string PendingEmailsContainer = "pending-hmlr-emails";
+
+    /// <summary>
+    /// Mail folder name for successfully processed emails
+    /// </summary>
+    public static readonly string ProcessedFolderName = "Processed";
+
+    /// <summary>
+    /// Mail folder name for emails that failed processing
+    /// </summary>
+    public static readonly string FailedFolderName = "Failed";
 }

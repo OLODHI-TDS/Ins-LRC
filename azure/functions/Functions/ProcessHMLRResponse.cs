@@ -20,6 +20,7 @@ public class ProcessHMLRResponse
     private readonly BlobServiceClient _blobClient;
     private readonly SalesforceService _salesforceService;
     private readonly TitleDeedParser _titleDeedParser;
+    private readonly EmailFolderService _emailFolderService;
 
     // HMLR Excel column mappings (0-based index)
     private const int ColCustomerRef = 0;
@@ -49,12 +50,14 @@ public class ProcessHMLRResponse
         ILogger<ProcessHMLRResponse> logger,
         BlobServiceClient blobClient,
         SalesforceService salesforceService,
-        TitleDeedParser titleDeedParser)
+        TitleDeedParser titleDeedParser,
+        EmailFolderService emailFolderService)
     {
         _logger = logger;
         _blobClient = blobClient;
         _salesforceService = salesforceService;
         _titleDeedParser = titleDeedParser;
+        _emailFolderService = emailFolderService;
     }
 
     /// <summary>
@@ -86,6 +89,12 @@ public class ProcessHMLRResponse
             // Clean up pending emails
             await CleanupPendingEmails(pair);
 
+            // Move emails to appropriate folder based on success/failure
+            await _emailFolderService.MoveEmailPairAsync(
+                pair.ExcelEmail.EmailId,
+                pair.ZipEmail.EmailId,
+                result.Success);
+
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(result);
             return response;
@@ -93,6 +102,23 @@ public class ProcessHMLRResponse
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing HMLR response");
+
+            // Move emails to Failed folder on exception
+            if (pair != null)
+            {
+                try
+                {
+                    await _emailFolderService.MoveEmailPairAsync(
+                        pair.ExcelEmail.EmailId,
+                        pair.ZipEmail.EmailId,
+                        success: false);
+                }
+                catch (Exception moveEx)
+                {
+                    _logger.LogError(moveEx, "Failed to move emails to Failed folder after processing error");
+                }
+            }
+
             var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
             await errorResponse.WriteAsJsonAsync(new { Error = ex.Message });
             return errorResponse;
@@ -110,11 +136,13 @@ public class ProcessHMLRResponse
     {
         _logger.LogInformation("Processing paired HMLR response from blob: {Name}", name);
 
+        HMLRResponsePair? pair = null;
+
         try
         {
             using var reader = new StreamReader(blobStream);
             var json = await reader.ReadToEndAsync();
-            var pair = JsonSerializer.Deserialize<HMLRResponsePair>(json);
+            pair = JsonSerializer.Deserialize<HMLRResponsePair>(json);
 
             if (pair == null)
             {
@@ -130,10 +158,33 @@ public class ProcessHMLRResponse
 
             // Clean up
             await CleanupPendingEmails(pair);
+
+            // Move emails to appropriate folder based on success/failure
+            await _emailFolderService.MoveEmailPairAsync(
+                pair.ExcelEmail.EmailId,
+                pair.ZipEmail.EmailId,
+                result.Success);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing HMLR response from blob {Name}", name);
+
+            // Try to move emails to Failed folder on exception
+            if (pair != null)
+            {
+                try
+                {
+                    await _emailFolderService.MoveEmailPairAsync(
+                        pair.ExcelEmail.EmailId,
+                        pair.ZipEmail.EmailId,
+                        success: false);
+                }
+                catch (Exception moveEx)
+                {
+                    _logger.LogError(moveEx, "Failed to move emails to Failed folder after processing error");
+                }
+            }
+
             throw;
         }
     }
